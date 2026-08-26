@@ -1,0 +1,4 @@
+# Defaults, with a slightly wider line. Everything else is stock rustfmt so that formatting
+# is never a thing anyone has to think about.
+max_width = 100
+edition = "2021"

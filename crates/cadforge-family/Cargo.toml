@@ -1,0 +1,19 @@
+[package]
+name = "cadforge-family"
+description = "CADForge parametric families: parameters, types, geometry recipes, hosting"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# ADR-0005: this is the differentiating crate. Nothing in the open AEC ecosystem has one.
+[dependencies]
+cadforge-core.workspace = true
+cadforge-geom.workspace = true
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true

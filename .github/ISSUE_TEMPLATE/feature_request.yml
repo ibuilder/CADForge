@@ -1,0 +1,42 @@
+name: Feature request
+description: Propose something CADForge should do
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check [ROADMAP.md](../blob/main/ROADMAP.md) first — it may already be planned,
+        or listed as a deliberate non-goal with the reasoning.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: |
+        What are you trying to do that you cannot do today? Describe the situation, not the
+        solution — the best fix is often not the one first imagined.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What you have in mind
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives you considered
+      description: Including doing nothing, or doing it outside CADForge.
+
+  - type: checkboxes
+    id: checked
+    attributes:
+      label: Before submitting
+      options:
+        - label: I checked ROADMAP.md and this is not already planned or an explicit non-goal
+          required: true
+        - label: I skimmed docs/adr/ for a decision this would contradict
+          required: false

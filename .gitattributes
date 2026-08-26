@@ -1,0 +1,10 @@
+# Normalise to LF in the repository. Contributors work on Windows, macOS, and Linux, and a
+# mixed-ending diff is noise nobody should have to read.
+* text=auto eol=lf
+
+*.png binary
+*.ifc text eol=lf
+*.obj text eol=lf
+
+# Keep generated lockfiles out of diff review noise, but still tracked.
+Cargo.lock linguist-generated=true

@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -D warnings
+
+jobs:
+  lint:
+    name: Format and lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo fmt
+        run: cargo fmt --all -- --check
+      - name: cargo clippy
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: cargo test
+        run: cargo test --workspace
+      # The GPU feature must at least compile everywhere. The tests themselves skip when no
+      # adapter is present, so this is safe on a headless runner.
+      - name: cargo build --features gpu
+        run: cargo build -p cadforge-render --features gpu
+
+  msrv:
+    name: Minimum supported Rust version
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read rust-version from the workspace manifest
+        id: msrv
+        run: echo "version=$(grep -m1 '^rust-version' Cargo.toml | cut -d'"' -f2)" >> "$GITHUB_OUTPUT"
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.msrv.outputs.version }}
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo check --workspace
+
+  ifc:
+    name: IFC conformance (IfcOpenShell)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install IfcOpenShell
+        run: pip install ifcopenshell
+      # The unit tests prove the file is internally consistent. This proves the reference
+      # implementation accepts it, which is a different and harder claim.
+      - name: Export a model
+        run: cargo run -p cadforge-shell
+      - name: Validate against IfcOpenShell
+        run: python tools/validate_ifc.py out/demo.ifc
+      - name: Upload the exported model
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: exported-ifc
+          path: |
+            out/demo.ifc
+            out/demo.obj
+          retention-days: 14
+
+  spike:
+    name: ifc-lite round trip at scale
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Catches performance regressions the unit tests cannot: the quadratic export bug was
+      # invisible at 2,000 walls and obvious at 20,000.
+      - name: Round-trip 20,000 walls
+        run: cargo run --release -p cadforge-ifc --example ifclite_spike 20000 | tee spike.txt
+      - name: Fail if any check regressed
+        run: |
+          if grep -q "FAIL" spike.txt; then
+            echo "::error::ifc-lite round trip reported a failure"
+            exit 1
+          fi

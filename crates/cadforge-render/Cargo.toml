@@ -1,0 +1,30 @@
+[package]
+name = "cadforge-render"
+description = "CADForge render types: fragments, camera, frustum culling, GPU picking"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# GPU-free by design. All the maths a renderer needs, none of the device state — so it tests
+# headlessly and the wgpu backend in Phase 3 is a thin layer on top (ADR-0001, ADR-0002).
+[features]
+default = []
+# ADR-0001: the viewport is a native wgpu surface, not a webview canvas. Gated so that
+# `cargo test -p cadforge-core` and friends never need a GPU or a display (ADR-0002).
+gpu = ["dep:wgpu", "dep:pollster", "dep:bytemuck", "dep:png"]
+
+[dependencies]
+cadforge-core.workspace = true
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+wgpu = { workspace = true, optional = true }
+pollster = { workspace = true, optional = true }
+bytemuck = { workspace = true, optional = true }
+png = { workspace = true, optional = true }

@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/ibuilder/CADForge/security/advisories/new
+    about: Report privately. Do not open a public issue for a vulnerability.
+  - name: Architecture decisions
+    url: https://github.com/ibuilder/CADForge/tree/main/docs/adr
+    about: Why CADForge has no B-rep kernel, no webview, and a hand-written IFC writer.

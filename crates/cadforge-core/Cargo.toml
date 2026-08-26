@@ -1,0 +1,20 @@
+[package]
+name = "cadforge-core"
+description = "CADForge semantic core: elements, IFC identity, commands, revisions"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# ADR-0002: core must compile and test without a window, a GPU, or an event loop.
+# ADR-0003: no third-party IFC type may appear in a public signature here.
+[dependencies]
+glam.workspace = true
+rstar.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+uuid.workspace = true

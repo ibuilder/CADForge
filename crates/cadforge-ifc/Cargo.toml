@@ -1,0 +1,28 @@
+[package]
+name = "cadforge-ifc"
+description = "CADForge IFC boundary: the IfcBackend trait and schema detection"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# ADR-0003: the IFC library sits behind a trait and is swappable. No third-party IFC type
+# may reach cadforge-core. `ifc-lite` is the intended default, pending measurement against
+# the Phase 2 corpus (PLAN.md §10).
+[dependencies]
+cadforge-core.workspace = true
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# Spike only (PLAN.md §10 step 8): measuring ifc-lite before committing to it as the Phase 2b
+# read backend. A dev-dependency, so nothing shipped depends on it yet.
+[dev-dependencies]
+ifc-lite-core = "6.0.1"
+
+[[example]]
+name = "ifclite_spike"

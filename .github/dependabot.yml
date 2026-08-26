@@ -1,0 +1,28 @@
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "deps"
+    groups:
+      # One PR for the routine churn, so patch bumps do not bury a real advisory.
+      patch-and-minor:
+        update-types: [minor, patch]
+    ignore:
+      # wgpu breaks its API most releases (30.0 alone moved to
+      # `buffers: &[Option<_>]`, `immediate_size`, and `multiview_mask`). Major bumps get
+      # handled deliberately, not by a bot.
+      - dependency-name: wgpu
+        update-types: [version-update:semver-major]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: monthly
+    commit-message:
+      prefix: "ci"

@@ -1,0 +1,32 @@
+[package]
+name = "cadforge-shell"
+description = "CADForge platform shell. Phase 3 replaces this demo with winit + wgpu."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# Enables the headless wgpu renderer (ADR-0001). Off by default so a plain `cargo test`
+# needs no GPU.
+gpu = ["cadforge-render/gpu"]
+
+[[bin]]
+name = "cadforge"
+path = "src/main.rs"
+
+# ADR-0002: every platform and UI concern lives here and nowhere else. When the winit/wgpu
+# shell lands in Phase 3, no other crate changes.
+[dependencies]
+cadforge-core.workspace = true
+cadforge-family.workspace = true
+cadforge-geom.workspace = true
+cadforge-ifc.workspace = true
+cadforge-render.workspace = true
+anyhow.workspace = true
+glam.workspace = true

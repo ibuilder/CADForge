@@ -1,0 +1,279 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CADForge — native IFC authoring in Rust</title>
+<meta name="description" content="A native, cross-platform, IFC-native BIM authoring application in Rust, with a first-class family system. Windows, macOS, Android, iOS.">
+<meta property="og:title" content="CADForge">
+<meta property="og:description" content="Native, cross-platform, IFC-native BIM authoring in Rust — with a real family system.">
+<meta property="og:type" content="website">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>">
+<style>
+  :root {
+    --bg: #ffffff;
+    --bg-soft: #f6f7f9;
+    --bg-code: #f2f3f5;
+    --fg: #16181d;
+    --fg-muted: #5b6270;
+    --fg-faint: #858c99;
+    --line: #e2e5ea;
+    --accent: #b4601a;
+    --accent-soft: #fdf3e8;
+    --ok: #1f7a45;
+    --warn: #96631a;
+    --shadow: 0 1px 2px rgba(0,0,0,.05), 0 8px 24px rgba(0,0,0,.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1116;
+      --bg-soft: #161922;
+      --bg-code: #1a1e28;
+      --fg: #e6e8ee;
+      --fg-muted: #a2aab9;
+      --fg-faint: #737b8a;
+      --line: #272c37;
+      --accent: #e2954f;
+      --accent-soft: #221a10;
+      --ok: #5fc98a;
+      --warn: #d4a24e;
+      --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+    }
+  }
+
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font: 16px/1.65 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 0 24px; }
+  a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+  a:hover { text-decoration-thickness: 2px; }
+  code, pre, .mono {
+    font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+    font-size: .9em;
+  }
+  code { background: var(--bg-code); padding: .12em .38em; border-radius: 4px; }
+  pre {
+    background: var(--bg-code); border: 1px solid var(--line); border-radius: 8px;
+    padding: 14px 16px; overflow-x: auto; line-height: 1.5;
+  }
+  pre code { background: none; padding: 0; }
+  h1, h2, h3 { line-height: 1.25; letter-spacing: -.015em; }
+  h2 { font-size: 1.5rem; margin: 3.5rem 0 1rem; }
+  h3 { font-size: 1.05rem; margin: 2rem 0 .5rem; }
+  p { margin: 0 0 1rem; }
+  hr { border: 0; border-top: 1px solid var(--line); margin: 3rem 0; }
+
+  header { padding: 72px 0 8px; border-bottom: 1px solid var(--line); }
+  .logo { font-size: 2.6rem; font-weight: 700; margin: 0 0 .35rem; letter-spacing: -.03em; }
+  .tagline { font-size: 1.18rem; color: var(--fg-muted); margin: 0 0 1.25rem; max-width: 46ch; }
+  .badges { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 28px; }
+  .badge {
+    font-size: .78rem; font-weight: 600; padding: 3px 10px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--bg-soft); color: var(--fg-muted);
+  }
+  .badge.status { border-color: var(--warn); color: var(--warn); background: var(--accent-soft); }
+  .badge.ok { border-color: var(--ok); color: var(--ok); }
+
+  .notice {
+    background: var(--accent-soft); border: 1px solid var(--line);
+    border-left: 3px solid var(--warn);
+    border-radius: 6px; padding: 14px 18px; margin: 28px 0; font-size: .95rem;
+  }
+  .notice strong { color: var(--warn); }
+
+  .shots { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 28px 0 8px; }
+  .shot { margin: 0; }
+  .shot img {
+    width: 100%; height: auto; display: block;
+    border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+    background: var(--bg-soft);
+  }
+  .shot figcaption { font-size: .82rem; color: var(--fg-faint); margin-top: 8px; }
+  @media (max-width: 620px) { .shots { grid-template-columns: 1fr; } }
+
+  table { width: 100%; border-collapse: collapse; margin: 1rem 0; font-size: .93rem; }
+  th, td { text-align: left; padding: 9px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-weight: 600; color: var(--fg-muted); font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; }
+  .scroll { overflow-x: auto; }
+
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin: 1.25rem 0; }
+  .card { border: 1px solid var(--line); border-radius: 8px; padding: 16px 18px; background: var(--bg-soft); }
+  .card h3 { margin: 0 0 .4rem; font-size: .98rem; }
+  .card p { margin: 0; font-size: .9rem; color: var(--fg-muted); }
+
+  .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 14px; margin: 1.25rem 0; }
+  .metric { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+  .metric .n { font-size: 1.5rem; font-weight: 700; letter-spacing: -.02em; }
+  .metric .l { font-size: .8rem; color: var(--fg-muted); margin-top: 2px; }
+
+  .cta { display: flex; flex-wrap: wrap; gap: 10px; margin: 1.5rem 0 0; }
+  .btn {
+    display: inline-block; padding: 9px 18px; border-radius: 7px; font-weight: 600;
+    font-size: .93rem; text-decoration: none; border: 1px solid var(--line);
+  }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.ghost { color: var(--fg); background: var(--bg-soft); }
+
+  ul { padding-left: 1.15rem; }
+  li { margin-bottom: .35rem; }
+  .muted { color: var(--fg-muted); }
+  .small { font-size: .9rem; }
+
+  footer { border-top: 1px solid var(--line); margin-top: 4rem; padding: 28px 0 56px; color: var(--fg-faint); font-size: .87rem; }
+  footer a { color: var(--fg-muted); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="wrap">
+    <h1 class="logo">CADForge</h1>
+    <p class="tagline">Native, cross-platform, IFC-native BIM authoring in Rust — with a family system.</p>
+    <div class="badges">
+      <span class="badge status">Early development · v0.1.0</span>
+      <span class="badge ok">179 tests</span>
+      <span class="badge ok">IfcOpenShell-validated</span>
+      <span class="badge">MPL-2.0</span>
+      <span class="badge">Windows · macOS · Android · iOS</span>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="notice">
+    <strong>Status: not production ready.</strong> Three of eight phases are complete. CADForge
+    can author a building semantically, flex parametric families, cut openings, render on the
+    GPU, and write valid IFC4. It <em>cannot read IFC yet</em> and it has <em>no window</em>.
+    Everything claimed on this page is measured; everything unbuilt is named.
+  </div>
+
+  <h2>Why it exists</h2>
+  <p>
+    Every serious new BIM authoring tool in 2026 — Motif, Arcol, Qonic, Snaptrude, Forma — is
+    cloud/browser-first and closed. Every open one is desktop-only. Nobody ships a native,
+    offline-capable, openBIM authoring application that runs on a tablet as well as a
+    workstation, and <strong>nothing in the open AEC ecosystem has a family system at all</strong>.
+  </p>
+  <p>
+    Shapr3D proved the native-plus-tablet posture works commercially in mechanical CAD. Nobody
+    has done it for AEC. That is the gap.
+  </p>
+
+  <h2>It draws</h2>
+  <div class="shots">
+    <figure class="shot">
+      <img src="assets/room.png" alt="Four walls forming a room, with a timber door standing in one wall, rendered on the GPU.">
+      <figcaption>Four walls and a hosted door, rendered headlessly through wgpu.</figcaption>
+    </figure>
+    <figure class="shot">
+      <img src="assets/doorway.png" alt="The same room with the door hidden, showing the rectangular opening cut through the wall.">
+      <figcaption>Door hidden. The dark rectangle is a real boolean cut, not a texture.</figcaption>
+    </figure>
+  </div>
+  <p class="small muted">
+    In the first frame the doorway is invisible because the leaf fills its own opening to
+    within the 10&nbsp;mm frame clearance — correct, but it proves nothing. Hide the door and the
+    cut has to be there.
+  </p>
+
+  <h2>What is measured</h2>
+  <div class="metrics">
+    <div class="metric"><div class="n">0</div><div class="l">EXPRESS rule violations, per IfcOpenShell 0.8.5</div></div>
+    <div class="metric"><div class="n">520 MB/s</div><div class="l">IFC scan throughput, 17.5 MB file</div></div>
+    <div class="metric"><div class="n">15.21 m³</div><div class="l">Viewer and exported file agree exactly</div></div>
+    <div class="metric"><div class="n">179</div><div class="l">Tests, zero clippy warnings</div></div>
+  </div>
+  <p class="small muted">
+    Exported IFC4 is checked against the reference implementation, not just against itself:
+    every relationship resolves, geometry generates for every element from the swept solids
+    alone, and every <code>GlobalId</code> survives a round trip.
+  </p>
+
+  <h2>Three decisions that shape everything</h2>
+  <div class="cards">
+    <div class="card">
+      <h3>No webview for the viewport</h3>
+      <p>WebGPU is absent from WKWebView and Android WebView, which would cap 3D at WebGL2 on
+      three of four target platforms. The viewport is a native wgpu surface.</p>
+    </div>
+    <div class="card">
+      <h3>No B-rep kernel</h3>
+      <p>There is no production-grade pure-Rust one. Fornjot ended without reaching its goals.
+      Geometry is a deterministic parametric recipe; the mesh is a disposable cache.</p>
+    </div>
+    <div class="card">
+      <h3>The family system is the product</h3>
+      <p>Typed parameters, named types, a recipe DAG, host behaviour. Placing a door expands
+      into a real <code>IfcOpeningElement</code>, <code>IfcRelVoidsElement</code>, and
+      <code>IfcRelFillsElement</code>.</p>
+    </div>
+  </div>
+  <p class="small">
+    Nine <a href="https://github.com/ibuilder/CADForge/tree/main/docs/adr">architecture decision records</a>
+    carry the evidence, the costs, and what would make each one wrong.
+  </p>
+
+  <h2>Try it</h2>
+<pre><code>git clone https://github.com/ibuilder/CADForge
+cd CADForge
+cargo test --workspace
+cargo run -p cadforge-shell --features gpu</code></pre>
+  <p class="small muted">
+    The demo authors four walls through commands, defines a parametric door family, places it
+    as a hosted opening, cuts the wall, renders to <code>out/demo.png</code>, exports valid
+    IFC4, undoes the entire session to an empty model, and redoes it.
+  </p>
+
+  <h2>Where it is going</h2>
+  <div class="scroll">
+  <table>
+    <thead><tr><th>Phase</th><th>State</th><th></th></tr></thead>
+    <tbody>
+      <tr><td>Foundation</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Decisions, workspace, tests</td></tr>
+      <tr><td>Core model</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Commands with exact inverses, revisions, undo</td></tr>
+      <tr><td>IFC out</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Native IFC4 writer, externally validated</td></tr>
+      <tr><td>IFC in</td><td class="mono" style="color:var(--warn)">next</td><td class="muted small">Backend chosen on measurement</td></tr>
+      <tr><td>Renderer</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Headless wgpu on real hardware</td></tr>
+      <tr><td>Viewport</td><td class="mono muted">planned</td><td class="muted small">winit window, GPU picking, section planes</td></tr>
+      <tr><td>Authoring tools</td><td class="mono muted">planned</td><td class="muted small">Wall, slab, column, beam, opening</td></tr>
+      <tr><td>Mobile</td><td class="mono muted">planned</td><td class="muted small">Android first, then iOS</td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="small">
+    The honest blocker is a test corpus. Everything round-tripped so far was written by
+    CADForge itself, which says nothing about a consultant's Revit export with duplicate
+    <code>GlobalId</code>s and geometry that fails to generate.
+    <a href="https://github.com/ibuilder/CADForge/blob/main/ROADMAP.md">Full roadmap →</a>
+  </p>
+
+  <div class="cta">
+    <a class="btn primary" href="https://github.com/ibuilder/CADForge">View on GitHub</a>
+    <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/docs/PLAN.md">Build plan</a>
+    <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/docs/research/LANDSCAPE.md">Landscape research</a>
+    <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/CHANGELOG.md">Changelog</a>
+  </div>
+
+</main>
+
+<footer>
+  <div class="wrap">
+    <p>
+      CADForge is licensed <a href="https://github.com/ibuilder/CADForge/blob/main/LICENSE">MPL-2.0</a>.
+      Built on <a href="https://ifcopenshell.org/">IfcOpenShell</a> for validation and
+      <a href="https://wgpu.rs/">wgpu</a> for rendering.
+    </p>
+    <p>Not affiliated with buildingSMART, Autodesk, or Graphisoft. IFC is a buildingSMART standard.</p>
+  </div>
+</footer>
+
+</body>
+</html>

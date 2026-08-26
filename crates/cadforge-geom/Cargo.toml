@@ -1,0 +1,20 @@
+[package]
+name = "cadforge-geom"
+description = "CADForge geometry: profiles, sweeps, tessellation, CSG boundary"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# ADR-0004: pure Rust, no C++ toolchain, no B-rep kernel.
+# Depends on core only to reuse `BoundingBox` rather than declaring a second AABB type.
+# The dependency never points the other way: core stays standalone (ADR-0002).
+[dependencies]
+cadforge-core.workspace = true
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true

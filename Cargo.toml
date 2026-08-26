@@ -1,0 +1,50 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/cadforge-core",
+    "crates/cadforge-geom",
+    "crates/cadforge-family",
+    "crates/cadforge-ifc",
+    "crates/cadforge-render",
+    "crates/cadforge-shell",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+license = "MPL-2.0"
+repository = "https://github.com/ibuilder/CADForge"
+homepage = "https://ibuilder.github.io/CADForge/"
+documentation = "https://docs.rs/cadforge-core"
+readme = "README.md"
+keywords = ["ifc", "bim", "cad", "aec", "openbim"]
+categories = ["science", "graphics", "data-structures"]
+
+# Versions verified against crates.io on 2026-08-25.
+# Do not copy the pins from docs/ifc-semantics.md §4.2 — they are stale
+# (that document lists glam 0.29 and parry3d 0.18).
+[workspace.dependencies]
+cadforge-core = { path = "crates/cadforge-core", version = "0.1.0" }
+cadforge-geom = { path = "crates/cadforge-geom", version = "0.1.0" }
+cadforge-family = { path = "crates/cadforge-family", version = "0.1.0" }
+cadforge-ifc = { path = "crates/cadforge-ifc", version = "0.1.0" }
+cadforge-render = { path = "crates/cadforge-render", version = "0.1.0" }
+
+anyhow = "1.0.104"
+glam = { version = "0.33.5", features = ["serde"] }
+rstar = "0.13.0"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1.0.151"
+thiserror = "2.0.20"
+uuid = { version = "1.25.0", features = ["v4", "serde"] }
+
+# GPU stack, behind the `gpu` feature so the default build stays fast and headless.
+wgpu = "30.0.1"
+pollster = "0.4"
+bytemuck = { version = "1", features = ["derive"] }
+png = "0.18"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
