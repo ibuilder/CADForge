@@ -1,7 +1,7 @@
 //! Element geometry, in the form IFC stores it.
 //!
 //! This is the bridge between "the recipe is canonical" (ADR-0004) and "IFC is the exchange
-//! authority" (`docs/ifc-semantics.md` ADR-001). A [`GeometryRecipe`] is how a family *authors*
+//! authority" (`docs/ifc-semantics.md` ADR-001). A `GeometryRecipe` is how a family *authors*
 //! geometry; a `Representation` is what that evaluates to and what gets written to a file.
 //!
 //! Deliberately pure data with no dependency on `cadforge-geom` or `cadforge-family`: core

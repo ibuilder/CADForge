@@ -1,6 +1,6 @@
 //! A BSP-tree mesh boolean.
 //!
-//! Fills the [`CsgBackend`](crate::csg::CsgBackend) hole left by ADR-0004. Openings are the
+//! Fills the [`crate::csg::CsgBackend`] hole left by ADR-0004. Openings are the
 //! motivating case: a door void through a wall is a hole in the middle of a solid, and no
 //! amount of profile arithmetic expresses that — it needs a real boolean.
 //!

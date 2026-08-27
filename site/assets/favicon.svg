@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="CADForge">
+  <title>CADForge</title>
+  <!--
+    Favicon variant. No extrusion, no vertex markers, heavier proportions: at 16 px every
+    one of those becomes a smudge. The silhouette has to carry it alone.
+  -->
+  <rect width="128" height="128" rx="26" fill="#2c323c"/>
+  <path fill="#c3cbd8"
+        d="M10 50 L26 36 L116 36 L116 56 L80 56 L80 82 L100 82 L100 104 L28 104 L28 82 L48 82 L48 56 L26 56 Z"/>
+  <path fill="#e2954f" d="M26 36 L116 36 L116 44 L26 44 Z"/>
+</svg>

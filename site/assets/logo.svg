@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="CADForge">
+  <title>CADForge</title>
+  <desc>An anvil drawn as a closed CAD profile with a swept extrusion — the shape CADForge authors natively.</desc>
+
+  <defs>
+    <linearGradient id="face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b6575"/>
+      <stop offset="1" stop-color="#39404c"/>
+    </linearGradient>
+    <linearGradient id="hot" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#f0a55c"/>
+      <stop offset="1" stop-color="#c9701f"/>
+    </linearGradient>
+  </defs>
+
+  <!--
+    The extrusion, drawn first so the profile face sits in front of it. The offset is the
+    sweep direction: this mark is an IfcExtrudedAreaSolid, which is the one representation
+    CADForge writes as native parametric IFC.
+  -->
+  <g transform="translate(13,-10)" opacity="0.42">
+    <path fill="#39404c"
+          d="M6 44 L20 32 L114 32 L114 52 L78 52 L78 84 L98 84 L98 104 L30 104 L30 84 L50 84 L50 52 L20 52 Z"/>
+  </g>
+
+  <!-- Sweep edges: profile vertex to its extruded twin. -->
+  <g stroke="#6b7686" stroke-width="1.6" stroke-linecap="round" opacity="0.55">
+    <path d="M20 32 L33 22"/>
+    <path d="M114 32 L127 22"/>
+    <path d="M114 52 L127 42"/>
+    <path d="M98 104 L111 94"/>
+    <path d="M30 104 L43 94"/>
+  </g>
+
+  <!--
+    The profile itself: one closed loop, thirteen points, no curves. Exactly the kind of
+    IfcArbitraryClosedProfileDef the geometry pipeline sweeps, and concave enough that it
+    exercises ear clipping rather than a fan.
+  -->
+  <path fill="url(#face)" stroke="#8b96a6" stroke-width="2" stroke-linejoin="round"
+        d="M6 44 L20 32 L114 32 L114 52 L78 52 L78 84 L98 84 L98 104 L30 104 L30 84 L50 84 L50 52 L20 52 Z"/>
+
+  <!-- The working face, hot. -->
+  <path fill="url(#hot)" d="M20 32 L114 32 L114 39 L20 39 Z"/>
+
+  <!-- Profile vertices, the way a sketch shows them. -->
+  <g fill="#e2954f">
+    <circle cx="6" cy="44" r="3.4"/>
+    <circle cx="114" cy="52" r="3"/>
+    <circle cx="78" cy="84" r="3"/>
+    <circle cx="98" cy="104" r="3"/>
+    <circle cx="30" cy="104" r="3"/>
+    <circle cx="50" cy="84" r="3"/>
+    <circle cx="20" cy="52" r="3"/>
+  </g>
+</svg>

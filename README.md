@@ -1,5 +1,7 @@
 <div align="center">
 
+<img src="site/assets/logo.svg" alt="" width="88" height="88">
+
 # CADForge
 
 **An IFC-native BIM authoring engine in Rust — with a real family system.**
@@ -14,6 +16,7 @@
 Tested on Windows, macOS, and Linux. Android and iOS are targets, not yet run on a device.
 
 [Website](https://ibuilder.github.io/CADForge/) ·
+[API docs](https://ibuilder.github.io/CADForge/api/) ·
 [Roadmap](ROADMAP.md) ·
 [Build plan](docs/PLAN.md) ·
 [Decisions](docs/adr/) ·
@@ -156,6 +159,7 @@ reverse-engineered. Geometry comes from Revit's IFC export.
 | [docs/research/LANDSCAPE.md](docs/research/LANDSCAPE.md) | Dated evidence behind every decision, with sources |
 | [docs/ifc-semantics.md](docs/ifc-semantics.md) | The IFC mapping reference — entities, relationships, fallback rules |
 | [docs/adr/](docs/adr/) | Architecture decision records |
+| [API documentation](https://ibuilder.github.io/CADForge/api/) | rustdoc for every crate, rebuilt on each push |
 | [CHANGELOG.md](CHANGELOG.md) | What changed, and what is knowingly missing |
 
 ## Contributing

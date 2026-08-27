@@ -3,9 +3,6 @@ name: GitHub Pages
 on:
   push:
     branches: [main]
-    paths:
-      - "site/**"
-      - ".github/workflows/pages.yml"
   workflow_dispatch:
 
 permissions:
@@ -27,11 +24,37 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
       - uses: actions/configure-pages@v6
+
+      # API documentation ships with the site. It is generated, never committed — a
+      # rustdoc tree in git history is noise nobody can ever prune.
+      - name: Build API documentation
+        env:
+          RUSTDOCFLAGS: -D warnings
+        run: cargo doc --workspace --no-deps --all-features
+
+      - name: Assemble the site
+        run: |
+          mkdir -p site/api
+          cp -r target/doc/* site/api/
+          # rustdoc has no root index when a workspace has several crates, so send /api/
+          # to the semantic core, which is where anyone reading this should start.
+          cat > site/api/index.html <<'HTML'
+          <!doctype html>
+          <meta charset="utf-8">
+          <title>CADForge API documentation</title>
+          <meta http-equiv="refresh" content="0; url=cadforge_core/index.html">
+          <link rel="canonical" href="cadforge_core/index.html">
+          <p>Redirecting to <a href="cadforge_core/index.html">cadforge_core</a>.</p>
+          HTML
+
       - name: Upload the site
         uses: actions/upload-pages-artifact@v5
         with:
           path: site
+
       - name: Deploy
         id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/deploy-pages@v4

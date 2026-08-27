@@ -30,3 +30,7 @@ cadforge-ifc.workspace = true
 cadforge-render.workspace = true
 anyhow.workspace = true
 glam.workspace = true
+
+[[example]]
+name = "logo"
+required-features = ["gpu"]

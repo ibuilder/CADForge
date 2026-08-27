@@ -8,7 +8,8 @@
 <meta property="og:title" content="CADForge">
 <meta property="og:description" content="An IFC-native BIM authoring engine in Rust, with a real family system. Early development - no GUI yet.">
 <meta property="og:type" content="website">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>">
+<link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+<meta property="og:image" content="https://ibuilder.github.io/CADForge/assets/logo.png">
 <style>
   :root {
     --bg: #ffffff;
@@ -134,7 +135,10 @@
 
 <header>
   <div class="wrap">
-    <h1 class="logo">CADForge</h1>
+    <div style="display:flex;align-items:center;gap:16px;margin-bottom:.35rem">
+      <img src="assets/logo.svg" alt="" width="64" height="64" style="flex:none">
+      <h1 class="logo" style="margin:0">CADForge</h1>
+    </div>
     <p class="tagline">An IFC-native BIM authoring engine in Rust — with a real family system.<br><span style="font-size:.9rem;color:var(--fg-faint)">The engine, not yet the application: libraries, a demo pipeline, and no GUI.</span></p>
     <div class="badges">
       <span class="badge status">Early development · v0.2.0</span>
@@ -259,6 +263,7 @@ cargo run -p cadforge-shell --features gpu</code></pre>
 
   <div class="cta">
     <a class="btn primary" href="https://github.com/ibuilder/CADForge">View on GitHub</a>
+    <a class="btn ghost" href="api/">API documentation</a>
     <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/docs/PLAN.md">Build plan</a>
     <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/docs/research/LANDSCAPE.md">Landscape research</a>
     <a class="btn ghost" href="https://github.com/ibuilder/CADForge/blob/main/CHANGELOG.md">Changelog</a>
