@@ -2,14 +2,16 @@
 
 # CADForge
 
-**Native, cross-platform, IFC-native BIM authoring in Rust — with a family system.**
+**An IFC-native BIM authoring engine in Rust — with a real family system.**
+
+*The engine, not yet the application: libraries, a demo pipeline, and no GUI.*
 
 [![CI](https://github.com/ibuilder/CADForge/actions/workflows/ci.yml/badge.svg)](https://github.com/ibuilder/CADForge/actions/workflows/ci.yml)
 [![License: MPL-2.0](https://img.shields.io/badge/license-MPL--2.0-blue.svg)](LICENSE)
 [![Rust 1.85+](https://img.shields.io/badge/rust-1.85%2B-orange.svg)](https://www.rust-lang.org)
 [![IfcOpenShell validated](https://img.shields.io/badge/IFC4-IfcOpenShell%20validated-brightgreen.svg)](tools/validate_ifc.py)
 
-Windows · macOS · Android · iOS — one renderer, one semantic core, one file.
+Tested on Windows, macOS, and Linux. Android and iOS are targets, not yet run on a device.
 
 [Website](https://ibuilder.github.io/CADForge/) ·
 [Roadmap](ROADMAP.md) ·

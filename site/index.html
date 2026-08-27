@@ -4,9 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>CADForge — native IFC authoring in Rust</title>
-<meta name="description" content="A native, cross-platform, IFC-native BIM authoring application in Rust, with a first-class family system. Windows, macOS, Android, iOS.">
+<meta name="description" content="Rust libraries for IFC-native BIM authoring: reads and writes IFC4, parametric families, GPU rendering. Early development - the engine, not yet an application. No GUI.">
 <meta property="og:title" content="CADForge">
-<meta property="og:description" content="Native, cross-platform, IFC-native BIM authoring in Rust — with a real family system.">
+<meta property="og:description" content="An IFC-native BIM authoring engine in Rust, with a real family system. Early development - no GUI yet.">
 <meta property="og:type" content="website">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏗️</text></svg>">
 <style>
@@ -135,13 +135,14 @@
 <header>
   <div class="wrap">
     <h1 class="logo">CADForge</h1>
-    <p class="tagline">Native, cross-platform, IFC-native BIM authoring in Rust — with a family system.</p>
+    <p class="tagline">An IFC-native BIM authoring engine in Rust — with a real family system.<br><span style="font-size:.9rem;color:var(--fg-faint)">The engine, not yet the application: libraries, a demo pipeline, and no GUI.</span></p>
     <div class="badges">
-      <span class="badge status">Early development · v0.1.0</span>
-      <span class="badge ok">179 tests</span>
+      <span class="badge status">Early development · v0.2.0</span>
+      <span class="badge ok">195 tests</span>
       <span class="badge ok">IfcOpenShell-validated</span>
       <span class="badge">MPL-2.0</span>
-      <span class="badge">Windows · macOS · Android · iOS</span>
+      <span class="badge">Tested: Windows · macOS · Linux</span>
+      <span class="badge">Targeting: Android · iOS</span>
     </div>
   </div>
 </header>
@@ -149,10 +150,11 @@
 <main class="wrap">
 
   <div class="notice">
-    <strong>Status: not production ready.</strong> Three of eight phases are complete. CADForge
-    can author a building semantically, flex parametric families, cut openings, render on the
-    GPU, and write valid IFC4. It <em>cannot read IFC yet</em> and it has <em>no window</em>.
-    Everything claimed on this page is measured; everything unbuilt is named.
+    <strong>Status: not production ready.</strong> Four of eight phases are complete. CADForge
+    reads and writes IFC, authors a building semantically, flexes parametric families, cuts
+    openings, and renders on the GPU. It has <em>no window</em> and <em>no authoring tools</em> —
+    everything today is driven from code. Everything claimed on this page is measured;
+    everything unbuilt is named.
   </div>
 
   <h2>Why it exists</h2>
@@ -188,8 +190,8 @@
   <div class="metrics">
     <div class="metric"><div class="n">0</div><div class="l">EXPRESS rule violations, per IfcOpenShell 0.8.5</div></div>
     <div class="metric"><div class="n">520 MB/s</div><div class="l">IFC scan throughput, 17.5 MB file</div></div>
-    <div class="metric"><div class="n">15.21 m³</div><div class="l">Viewer and exported file agree exactly</div></div>
-    <div class="metric"><div class="n">179</div><div class="l">Tests, zero clippy warnings</div></div>
+    <div class="metric"><div class="n">23/23</div><div class="l">Corpus files round-trip with every element intact</div></div>
+    <div class="metric"><div class="n">195</div><div class="l">Tests, zero clippy warnings</div></div>
   </div>
   <p class="small muted">
     Exported IFC4 is checked against the reference implementation, not just against itself:
@@ -240,7 +242,7 @@ cargo run -p cadforge-shell --features gpu</code></pre>
       <tr><td>Foundation</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Decisions, workspace, tests</td></tr>
       <tr><td>Core model</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Commands with exact inverses, revisions, undo</td></tr>
       <tr><td>IFC out</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Native IFC4 writer, externally validated</td></tr>
-      <tr><td>IFC in</td><td class="mono" style="color:var(--warn)">next</td><td class="muted small">Backend chosen on measurement</td></tr>
+      <tr><td>IFC in</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">23/23 corpus files round-trip intact</td></tr>
       <tr><td>Renderer</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Headless wgpu on real hardware</td></tr>
       <tr><td>Viewport</td><td class="mono muted">planned</td><td class="muted small">winit window, GPU picking, section planes</td></tr>
       <tr><td>Authoring tools</td><td class="mono muted">planned</td><td class="muted small">Wall, slab, column, beam, opening</td></tr>
