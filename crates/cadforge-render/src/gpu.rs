@@ -15,6 +15,7 @@
 //! Feature-gated behind `gpu` so that `cargo test -p cadforge-core` still needs no GPU.
 
 use crate::camera::Camera;
+use crate::fragment::FragmentId;
 use bytemuck::{Pod, Zeroable};
 use glam::DVec3;
 use std::borrow::Cow;
@@ -23,6 +24,9 @@ use wgpu::util::DeviceExt;
 /// Render target format. sRGB so the bytes written to a PNG are display-ready.
 const COLOR_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 const DEPTH_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Depth32Float;
+/// Identity buffer format. **Not** sRGB: these bytes are an integer, and a gamma curve
+/// applied to an id turns it into a different id.
+const PICK_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8Unorm;
 /// `copy_texture_to_buffer` requires each row to start on a 256-byte boundary.
 const COPY_ALIGNMENT: u32 = 256;
 
@@ -54,6 +58,9 @@ pub struct MeshData<'a> {
     pub indices: &'a [u32],
     /// Linear RGB.
     pub color: [f32; 3],
+    /// What a click on this mesh resolves to. `FragmentId::NONE` (zero) makes it unpickable,
+    /// which is what a grid or a gizmo wants.
+    pub id: FragmentId,
 }
 
 #[repr(C)]
@@ -62,6 +69,8 @@ struct GpuVertex {
     position: [f32; 3],
     normal: [f32; 3],
     color: [f32; 3],
+    /// Flat-interpolated through to the pick shader.
+    id: u32,
 }
 
 #[repr(C)]
@@ -78,6 +87,7 @@ pub struct Renderer {
     device: wgpu::Device,
     queue: wgpu::Queue,
     pipeline: wgpu::RenderPipeline,
+    pick_pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
     /// Colour format the pipeline was built for. Headless uses [`COLOR_FORMAT`]; a window
@@ -214,7 +224,7 @@ impl Renderer {
                     array_stride: std::mem::size_of::<GpuVertex>() as u64,
                     step_mode: wgpu::VertexStepMode::Vertex,
                     attributes: &wgpu::vertex_attr_array![
-                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Uint32
                     ],
                 })],
             },
@@ -248,10 +258,57 @@ impl Renderer {
             cache: None,
         });
 
+        // The pick pipeline differs from the shading one only in its fragment entry point and
+        // target format. Same geometry, same depth test, so what the user sees and what the
+        // user clicks can never disagree.
+        let pick_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("cadforge pick"),
+            layout: Some(&layout),
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                compilation_options: Default::default(),
+                buffers: &[Some(wgpu::VertexBufferLayout {
+                    array_stride: std::mem::size_of::<GpuVertex>() as u64,
+                    step_mode: wgpu::VertexStepMode::Vertex,
+                    attributes: &wgpu::vertex_attr_array![
+                        0 => Float32x3, 1 => Float32x3, 2 => Float32x3, 3 => Uint32
+                    ],
+                })],
+            },
+            primitive: wgpu::PrimitiveState {
+                topology: wgpu::PrimitiveTopology::TriangleList,
+                front_face: wgpu::FrontFace::Ccw,
+                cull_mode: Some(wgpu::Face::Back),
+                ..Default::default()
+            },
+            depth_stencil: Some(wgpu::DepthStencilState {
+                format: DEPTH_FORMAT,
+                depth_write_enabled: Some(true),
+                depth_compare: Some(wgpu::CompareFunction::Less),
+                stencil: Default::default(),
+                bias: Default::default(),
+            }),
+            multisample: Default::default(),
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_pick"),
+                compilation_options: Default::default(),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format: PICK_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+            }),
+            multiview_mask: None,
+            cache: None,
+        });
+
         Ok(Self {
             device,
             queue,
             pipeline,
+            pick_pipeline,
             bind_group,
             uniform_buffer,
             format,
@@ -489,6 +546,155 @@ impl Renderer {
         Ok(pixels)
     }
 
+    /// Resolve a pixel to the mesh under it.
+    ///
+    /// Renders the scene a second time writing identities instead of colour, then reads back
+    /// the single pixel asked for. Rendering the whole buffer to read one pixel sounds
+    /// wasteful, and is: it happens on click, not per frame, and it is the only approach that
+    /// agrees with what is on screen down to the last pixel of a silhouette. Ray casting
+    /// against the model would disagree wherever the depth test does.
+    ///
+    /// Returns `None` for a click on the background or outside the viewport.
+    pub fn pick(
+        &self,
+        meshes: &[MeshData<'_>],
+        camera: &Camera,
+        x: u32,
+        y: u32,
+    ) -> Result<Option<FragmentId>, GpuError> {
+        if x >= self.width || y >= self.height {
+            return Ok(None);
+        }
+
+        let (vertices, indices) = flatten(meshes);
+        self.write_uniforms(camera);
+
+        let target = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("pick"),
+            size: wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: PICK_FORMAT,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let target_view = target.create_view(&Default::default());
+        let depth_view = self.create_depth_view();
+
+        let vertex_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("pick vertices"),
+                contents: bytemuck::cast_slice(&vertices),
+                usage: wgpu::BufferUsages::VERTEX,
+            });
+        let index_buffer = self
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("pick indices"),
+                contents: bytemuck::cast_slice(&indices),
+                usage: wgpu::BufferUsages::INDEX,
+            });
+
+        // One pixel, but the copy still has to respect the 256-byte row alignment.
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("pick readback"),
+            size: u64::from(COPY_ALIGNMENT),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("pick"),
+            });
+        {
+            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                label: Some("pick"),
+                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                    view: &target_view,
+                    depth_slice: None,
+                    resolve_target: None,
+                    ops: wgpu::Operations {
+                        // Zero is FragmentId::NONE, so cleared background reads as a miss.
+                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        store: wgpu::StoreOp::Store,
+                    },
+                })],
+                depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
+                    view: &depth_view,
+                    depth_ops: Some(wgpu::Operations {
+                        load: wgpu::LoadOp::Clear(1.0),
+                        store: wgpu::StoreOp::Store,
+                    }),
+                    stencil_ops: None,
+                }),
+                timestamp_writes: None,
+                occlusion_query_set: None,
+                multiview_mask: None,
+            });
+
+            if !indices.is_empty() {
+                pass.set_pipeline(&self.pick_pipeline);
+                pass.set_bind_group(0, &self.bind_group, &[]);
+                pass.set_vertex_buffer(0, vertex_buffer.slice(..));
+                pass.set_index_buffer(index_buffer.slice(..), wgpu::IndexFormat::Uint32);
+                pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
+            }
+        }
+
+        encoder.copy_texture_to_buffer(
+            wgpu::TexelCopyTextureInfo {
+                texture: &target,
+                mip_level: 0,
+                origin: wgpu::Origin3d { x, y, z: 0 },
+                aspect: wgpu::TextureAspect::All,
+            },
+            wgpu::TexelCopyBufferInfo {
+                buffer: &readback,
+                layout: wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(COPY_ALIGNMENT),
+                    rows_per_image: Some(1),
+                },
+            },
+            wgpu::Extent3d {
+                width: 1,
+                height: 1,
+                depth_or_array_layers: 1,
+            },
+        );
+        self.queue.submit([encoder.finish()]);
+
+        let slice = readback.slice(..);
+        let (sender, receiver) = std::sync::mpsc::channel();
+        slice.map_async(wgpu::MapMode::Read, move |result| {
+            let _ = sender.send(result);
+        });
+        self.device
+            .poll(wgpu::PollType::wait_indefinitely())
+            .map_err(|e| GpuError::Readback(e.to_string()))?;
+        receiver
+            .recv()
+            .map_err(|e| GpuError::Readback(e.to_string()))?
+            .map_err(|e| GpuError::Readback(e.to_string()))?;
+
+        let mapped = slice
+            .get_mapped_range()
+            .map_err(|e| GpuError::Readback(e.to_string()))?;
+        let id = FragmentId::from_pick_color([mapped[0], mapped[1], mapped[2], mapped[3]]);
+        drop(mapped);
+        readback.unmap();
+
+        Ok((!id.is_none()).then_some(id))
+    }
+
     /// Render and write a PNG in one step.
     pub fn render_to_png(
         &self,
@@ -523,6 +729,7 @@ fn flatten(meshes: &[MeshData<'_>]) -> (Vec<GpuVertex>, Vec<u32>) {
                 position: [position.x as f32, position.y as f32, position.z as f32],
                 normal: [normal.x as f32, normal.y as f32, normal.z as f32],
                 color: mesh.color,
+                id: mesh.id.0,
             });
         }
         indices.extend(mesh.indices.iter().map(|i| i + base));
@@ -564,6 +771,8 @@ struct VsOut {
     @builtin(position) clip_position: vec4<f32>,
     @location(0) normal: vec3<f32>,
     @location(1) color: vec3<f32>,
+    // Flat: an identity must not be smeared across a triangle.
+    @location(2) @interpolate(flat) id: u32,
 };
 
 @vertex
@@ -571,12 +780,26 @@ fn vs_main(
     @location(0) position: vec3<f32>,
     @location(1) normal: vec3<f32>,
     @location(2) color: vec3<f32>,
+    @location(3) id: u32,
 ) -> VsOut {
     var out: VsOut;
     out.clip_position = u.view_projection * vec4<f32>(position, 1.0);
     out.normal = normal;
     out.color = color;
+    out.id = id;
     return out;
+}
+
+// Little-endian bytes of the id, matching FragmentId::to_pick_color on the CPU side. The
+// target is Rgba8Unorm, so each channel stores its byte exactly.
+@fragment
+fn fs_pick(in: VsOut) -> @location(0) vec4<f32> {
+    return vec4<f32>(
+        f32(in.id & 0xFFu) / 255.0,
+        f32((in.id >> 8u) & 0xFFu) / 255.0,
+        f32((in.id >> 16u) & 0xFFu) / 255.0,
+        f32((in.id >> 24u) & 0xFFu) / 255.0,
+    );
 }
 
 @fragment
@@ -689,6 +912,7 @@ mod tests {
                     normals: &normals,
                     indices: &indices,
                     color: [0.85, 0.55, 0.25],
+                    id: FragmentId::NONE,
                 }],
                 &camera,
             )
@@ -720,6 +944,7 @@ mod tests {
             normals: &normals,
             indices: &indices,
             color: [0.8, 0.4, 0.2],
+            id: FragmentId::NONE,
         };
         let camera = Camera::default();
         let a = renderer.render(&[mesh], &camera).unwrap();
@@ -765,6 +990,7 @@ mod tests {
                         normals: &normals,
                         indices,
                         color: [0.9, 0.6, 0.2],
+                        id: FragmentId::NONE,
                     }],
                     &camera,
                 )
@@ -819,6 +1045,7 @@ mod tests {
                         normals: &normals,
                         indices,
                         color: [0.85, 0.55, 0.25],
+                        id: FragmentId::NONE,
                     }],
                     &camera,
                 )
@@ -838,6 +1065,207 @@ mod tests {
         };
         let (a, b) = (covered(&correct), covered(&inverted));
         assert!(a > 500 && b > 500, "both should be visible: {a} vs {b}");
+    }
+
+    /// A cube translated along X, tagged with an identity.
+    fn tagged_cube(offset: f64, id: u32) -> (Vec<DVec3>, Vec<DVec3>, Vec<u32>, FragmentId) {
+        let (positions, normals, indices) = cube();
+        let moved = positions
+            .iter()
+            .map(|p| *p + DVec3::new(offset, 0.0, 0.0))
+            .collect();
+        (moved, normals, indices, FragmentId(id))
+    }
+
+    #[test]
+    fn a_pick_resolves_to_the_mesh_under_the_pixel() {
+        let Some(renderer) = renderer(256, 256) else {
+            return;
+        };
+        let (left_pos, left_norm, left_idx, left_id) = tagged_cube(-2.0, 7);
+        let (right_pos, right_norm, right_idx, right_id) = tagged_cube(2.0, 9);
+
+        let meshes = [
+            MeshData {
+                positions: &left_pos,
+                normals: &left_norm,
+                indices: &left_idx,
+                color: [0.8, 0.3, 0.3],
+                id: left_id,
+            },
+            MeshData {
+                positions: &right_pos,
+                normals: &right_norm,
+                indices: &right_idx,
+                color: [0.3, 0.3, 0.8],
+                id: right_id,
+            },
+        ];
+
+        let mut camera = Camera::default();
+        camera.set_viewport(256, 256);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::new(-2.5, -0.5, -0.5),
+            DVec3::new(2.5, 0.5, 0.5),
+        ));
+
+        // Project each cube's centre to a pixel rather than guessing at quarter-width. The
+        // first version picked at 64 and 192 and missed both cubes, which says more about
+        // guessing than about picking.
+        let project = |point: DVec3| -> (u32, u32) {
+            let clip = camera.view_projection() * point.extend(1.0);
+            let ndc = clip.truncate() / clip.w;
+            (
+                ((ndc.x * 0.5 + 0.5) * 256.0) as u32,
+                ((0.5 - ndc.y * 0.5) * 256.0) as u32,
+            )
+        };
+
+        let (lx, ly) = project(DVec3::new(-2.0, 0.0, 0.0));
+        let (rx, ry) = project(DVec3::new(2.0, 0.0, 0.0));
+
+        assert_eq!(
+            renderer.pick(&meshes, &camera, lx, ly).unwrap(),
+            Some(left_id),
+            "the cube at x = -2 should pick as itself"
+        );
+        assert_eq!(
+            renderer.pick(&meshes, &camera, rx, ry).unwrap(),
+            Some(right_id),
+            "the cube at x = 2 should pick as itself"
+        );
+    }
+
+    #[test]
+    fn a_pick_on_the_background_is_a_miss() {
+        // The pick target clears to zero, which is FragmentId::NONE, so empty space must not
+        // resolve to a real fragment.
+        let Some(renderer) = renderer(256, 256) else {
+            return;
+        };
+        let (positions, normals, indices, id) = tagged_cube(0.0, 5);
+        let meshes = [MeshData {
+            positions: &positions,
+            normals: &normals,
+            indices: &indices,
+            color: [0.8, 0.5, 0.2],
+            id,
+        }];
+
+        let mut camera = Camera::default();
+        camera.set_viewport(256, 256);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::splat(-0.5),
+            DVec3::splat(0.5),
+        ));
+
+        assert_eq!(renderer.pick(&meshes, &camera, 2, 2).unwrap(), None);
+        assert_eq!(renderer.pick(&meshes, &camera, 128, 128).unwrap(), Some(id));
+    }
+
+    #[test]
+    fn a_pick_outside_the_viewport_is_a_miss_not_a_panic() {
+        let Some(renderer) = renderer(128, 128) else {
+            return;
+        };
+        assert_eq!(
+            renderer.pick(&[], &Camera::default(), 500, 500).unwrap(),
+            None
+        );
+        assert_eq!(renderer.pick(&[], &Camera::default(), 0, 0).unwrap(), None);
+    }
+
+    #[test]
+    fn the_nearer_surface_wins() {
+        // Same pixel, two cubes, one in front. The pick pass shares the shading pass depth
+        // test, so what you click can never disagree with what you see.
+        let Some(renderer) = renderer(256, 256) else {
+            return;
+        };
+        let mut camera = Camera::default();
+        camera.set_viewport(256, 256);
+        camera.target = DVec3::ZERO;
+        camera.distance = 8.0;
+
+        // One cube at the origin, one pushed directly away from the camera behind it.
+        let behind = (camera.target - camera.eye()).normalize() * 3.0;
+        let (front_pos, front_norm, front_idx, front_id) = tagged_cube(0.0, 11);
+        let (raw_pos, back_norm, back_idx, back_id) = tagged_cube(0.0, 13);
+        let back_pos: Vec<DVec3> = raw_pos.iter().map(|p| *p + behind).collect();
+
+        let meshes = [
+            MeshData {
+                positions: &back_pos,
+                normals: &back_norm,
+                indices: &back_idx,
+                color: [0.3, 0.3, 0.8],
+                id: back_id,
+            },
+            // Drawn second, but depth decides — not draw order.
+            MeshData {
+                positions: &front_pos,
+                normals: &front_norm,
+                indices: &front_idx,
+                color: [0.8, 0.3, 0.3],
+                id: front_id,
+            },
+        ];
+
+        assert_eq!(
+            renderer.pick(&meshes, &camera, 128, 128).unwrap(),
+            Some(front_id),
+            "the nearer cube should win the depth test"
+        );
+    }
+
+    #[test]
+    fn an_unpickable_mesh_reads_as_background() {
+        // FragmentId::NONE means "drawn but not selectable" — a grid, a gizmo, a ghost.
+        let Some(renderer) = renderer(128, 128) else {
+            return;
+        };
+        let (positions, normals, indices, _) = tagged_cube(0.0, 0);
+        let meshes = [MeshData {
+            positions: &positions,
+            normals: &normals,
+            indices: &indices,
+            color: [0.5, 0.5, 0.5],
+            id: FragmentId::NONE,
+        }];
+
+        let mut camera = Camera::default();
+        camera.set_viewport(128, 128);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::splat(-0.5),
+            DVec3::splat(0.5),
+        ));
+        assert_eq!(renderer.pick(&meshes, &camera, 64, 64).unwrap(), None);
+    }
+
+    #[test]
+    fn picking_is_deterministic() {
+        let Some(renderer) = renderer(128, 128) else {
+            return;
+        };
+        let (positions, normals, indices, id) = tagged_cube(0.0, 42);
+        let meshes = [MeshData {
+            positions: &positions,
+            normals: &normals,
+            indices: &indices,
+            color: [0.8, 0.5, 0.2],
+            id,
+        }];
+        let mut camera = Camera::default();
+        camera.set_viewport(128, 128);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::splat(-0.5),
+            DVec3::splat(0.5),
+        ));
+
+        let first = renderer.pick(&meshes, &camera, 64, 64).unwrap();
+        let second = renderer.pick(&meshes, &camera, 64, 64).unwrap();
+        assert_eq!(first, second);
+        assert_eq!(first, Some(id));
     }
 
     #[test]

@@ -15,7 +15,7 @@
 use anyhow::Result;
 use cadforge_core::BoundingBox;
 use cadforge_geom::{extrude, Profile};
-use cadforge_render::{Camera, MeshData, Renderer};
+use cadforge_render::{Camera, FragmentId, MeshData, Renderer};
 use glam::{DMat4, DVec2, DVec3};
 
 /// The anvil, in the same coordinates as `site/assets/logo.svg` so the two marks stay the
@@ -112,12 +112,14 @@ fn main() -> Result<()> {
                 normals: &mark.normals,
                 indices: &mark.indices,
                 color: [0.60, 0.65, 0.73],
+                id: FragmentId::NONE,
             },
             MeshData {
                 positions: &hot.positions,
                 normals: &hot.normals,
                 indices: &hot.indices,
                 color: [0.89, 0.52, 0.16],
+                id: FragmentId::NONE,
             },
         ],
         &camera,

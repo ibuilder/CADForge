@@ -43,10 +43,13 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: cargo test
         run: cargo test --workspace
-      # The GPU feature must at least compile everywhere. The tests themselves skip when no
-      # adapter is present, so this is safe on a headless runner.
-      - name: cargo build --features gpu
-        run: cargo build -p cadforge-render --features gpu
+      # Feature-gated code must at least compile everywhere. The tests themselves skip when
+      # no adapter is present, so this is safe on a headless runner.
+      #
+      # --all-targets matters: a broken example behind `required-features` is invisible to a
+      # plain `cargo build`, and one shipped that way.
+      - name: cargo build --features viewport
+        run: cargo build -p cadforge-shell --features viewport --all-targets
 
   msrv:
     name: Minimum supported Rust version

@@ -26,6 +26,14 @@ is `0`, the public API may change in any release.
 - **API documentation** published at <https://ibuilder.github.io/CADForge/api/>, built from
   rustdoc on every push and generated at deploy time rather than committed.
 
+- **GPU picking.** `Renderer::pick` renders the scene a second time writing identities
+  instead of colour and reads back the pixel under the cursor. It shares the shading pass
+  depth test, so what you click can never disagree with what you see — which ray casting
+  against the model cannot guarantee. `MeshData` carries a `FragmentId`; zero means drawn but
+  not selectable, for grids and gizmos.
+- Clicking in the viewport selects an element and highlights it, distinguishing a click from
+  the end of an orbit drag by how far the cursor moved.
+
 ### Fixed
 
 - **Imported lengths ignored the file's units.** Real IFC is overwhelmingly in millimetres, and

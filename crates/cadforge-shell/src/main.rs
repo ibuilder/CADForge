@@ -371,6 +371,7 @@ fn main() -> Result<()> {
                     normals: &piece.world.normals,
                     indices: &piece.world.indices,
                     color: color_for(&class),
+                    id: FragmentId::NONE,
                 }
             })
             .collect();

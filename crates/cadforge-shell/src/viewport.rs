@@ -22,7 +22,7 @@ use anyhow::{Context, Result};
 use cadforge_core::{BoundingBox, GlobalId, IfcClass, Model, Representation};
 use cadforge_geom::{extrude_along, IndexedMesh, Profile};
 use cadforge_ifc::{IfcBackend, IfcLiteBackend};
-use cadforge_render::{Camera, MeshData, Renderer};
+use cadforge_render::{Camera, FragmentId, MeshData, Renderer};
 use glam::{DMat4, DVec2, DVec3};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
@@ -92,7 +92,11 @@ fn main() -> Result<()> {
 struct Scene {
     meshes: Vec<IndexedMesh>,
     colors: Vec<[f32; 3]>,
+    /// What each mesh is, so a pick can report something a person recognises.
+    labels: Vec<String>,
     bounds: BoundingBox,
+    /// Highlighted by the last click.
+    selected: Option<usize>,
 }
 
 impl Scene {
@@ -120,6 +124,7 @@ impl Scene {
     fn from_model(model: &Model) -> Result<Self> {
         let mut meshes = Vec::new();
         let mut colors = Vec::new();
+        let mut labels = Vec::new();
         let mut bounds = BoundingBox::empty();
 
         for element in model.iter() {
@@ -136,6 +141,14 @@ impl Scene {
             let world = local.transformed(world_transform(model, element.global_id.clone()));
             bounds = bounds.union(world.bounds());
             colors.push(color_for(&element.class));
+            labels.push(format!(
+                "{} {}",
+                element.class.ifc_name(),
+                element
+                    .name
+                    .as_deref()
+                    .unwrap_or(element.global_id.as_str())
+            ));
             meshes.push(world);
         }
 
@@ -143,21 +156,36 @@ impl Scene {
         Ok(Self {
             meshes,
             colors,
+            labels,
             bounds,
+            selected: None,
         })
     }
 
+    /// Identities start at 1, because zero is the miss sentinel a cleared pick buffer reads
+    /// as. Index `i` is therefore `FragmentId(i + 1)`.
     fn mesh_data(&self) -> Vec<MeshData<'_>> {
         self.meshes
             .iter()
-            .zip(&self.colors)
-            .map(|(mesh, color)| MeshData {
+            .enumerate()
+            .map(|(i, mesh)| MeshData {
                 positions: &mesh.positions,
                 normals: &mesh.normals,
                 indices: &mesh.indices,
-                color: *color,
+                color: if self.selected == Some(i) {
+                    [0.95, 0.62, 0.20]
+                } else {
+                    self.colors[i]
+                },
+                id: FragmentId(i as u32 + 1),
             })
             .collect()
+    }
+
+    fn index_of(&self, id: FragmentId) -> Option<usize> {
+        (id.0 as usize)
+            .checked_sub(1)
+            .filter(|i| *i < self.meshes.len())
     }
 }
 
@@ -228,6 +256,8 @@ struct App {
     /// Left-drag orbits, right- or middle-drag pans.
     dragging: Option<MouseButton>,
     cursor: Option<DVec2>,
+    /// Where the current press started, to tell a click from the end of a drag.
+    press_at: Option<DVec2>,
     /// Render this many frames then exit, so the viewport is testable without a human.
     frames_left: Option<u32>,
 }
@@ -241,6 +271,7 @@ impl App {
             camera: Camera::default(),
             dragging: None,
             cursor: None,
+            press_at: None,
             frames_left: frames,
         }
     }
@@ -341,7 +372,47 @@ impl ApplicationHandler for App {
             }
 
             WindowEvent::MouseInput { state, button, .. } => {
-                self.dragging = (state == ElementState::Pressed).then_some(button);
+                if state == ElementState::Pressed {
+                    self.dragging = Some(button);
+                    self.press_at = self.cursor;
+                    return;
+                }
+                self.dragging = None;
+
+                // A click is a release close to where the press landed. Anything further is
+                // the end of a drag, and orbiting should not also select.
+                let moved = match (self.press_at, self.cursor) {
+                    (Some(from), Some(to)) => (to - from).length(),
+                    _ => f64::INFINITY,
+                };
+                if button != MouseButton::Left || moved > 4.0 {
+                    return;
+                }
+                let (Some(gpu), Some(cursor)) = (&self.gpu, self.cursor) else {
+                    return;
+                };
+                match gpu.renderer.pick(
+                    &self.scene.mesh_data(),
+                    &self.camera,
+                    cursor.x.max(0.0) as u32,
+                    cursor.y.max(0.0) as u32,
+                ) {
+                    Ok(Some(id)) => {
+                        let index = self.scene.index_of(id);
+                        if let Some(i) = index {
+                            println!("selected            {}", self.scene.labels[i]);
+                        }
+                        self.scene.selected = index;
+                    }
+                    Ok(None) => {
+                        println!("selected            nothing");
+                        self.scene.selected = None;
+                    }
+                    Err(e) => eprintln!("pick failed: {e}"),
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
             }
 
             WindowEvent::CursorMoved { position, .. } => {
