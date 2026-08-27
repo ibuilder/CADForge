@@ -25,11 +25,11 @@ categories = ["science", "graphics", "data-structures"]
 # Do not copy the pins from docs/ifc-semantics.md §4.2 — they are stale
 # (that document lists glam 0.29 and parry3d 0.18).
 [workspace.dependencies]
-cadforge-core = { path = "crates/cadforge-core", version = "0.1.0" }
-cadforge-geom = { path = "crates/cadforge-geom", version = "0.1.0" }
-cadforge-family = { path = "crates/cadforge-family", version = "0.1.0" }
-cadforge-ifc = { path = "crates/cadforge-ifc", version = "0.1.0" }
-cadforge-render = { path = "crates/cadforge-render", version = "0.1.0" }
+cadforge-core = { path = "crates/cadforge-core", version = "0.2.0" }
+cadforge-geom = { path = "crates/cadforge-geom", version = "0.2.0" }
+cadforge-family = { path = "crates/cadforge-family", version = "0.2.0" }
+cadforge-ifc = { path = "crates/cadforge-ifc", version = "0.2.0" }
+cadforge-render = { path = "crates/cadforge-render", version = "0.2.0" }
 
 anyhow = "1.0.104"
 glam = { version = "0.33.5", features = ["serde"] }

@@ -114,7 +114,7 @@ checksum = "1fd0f2584146f6f2ef48085050886acf353beff7305ebd1ae69500e27c67f64b"
 
 [[package]]
 name = "cadforge-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "glam",
  "rstar",
@@ -125,7 +125,7 @@ dependencies = [
 
 [[package]]
 name = "cadforge-family"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cadforge-core",
  "cadforge-geom",
@@ -136,7 +136,7 @@ dependencies = [
 
 [[package]]
 name = "cadforge-geom"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cadforge-core",
  "glam",
@@ -146,7 +146,7 @@ dependencies = [
 
 [[package]]
 name = "cadforge-ifc"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cadforge-core",
  "glam",
@@ -157,7 +157,7 @@ dependencies = [
 
 [[package]]
 name = "cadforge-render"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "bytemuck",
  "cadforge-core",
@@ -171,7 +171,7 @@ dependencies = [
 
 [[package]]
 name = "cadforge-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "anyhow",
  "cadforge-core",
