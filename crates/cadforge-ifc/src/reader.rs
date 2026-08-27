@@ -89,6 +89,13 @@ struct Reader<'a> {
     /// Cached world transforms, because a storey's chain is walked once per element under it.
     world_cache: BTreeMap<u32, DMat4>,
     unsupported: BTreeMap<String, usize>,
+    /// Metres per file unit, from the project's `IfcUnitAssignment`.
+    ///
+    /// Real files are overwhelmingly in millimetres. CADForge is metric-metres throughout —
+    /// `PropertyValue::Length` says so — so every length crossing this boundary is scaled.
+    /// Skipping this reads a 3 m wall as 3 km, which is exactly what it did before the
+    /// viewport put a real file on screen.
+    length_scale: f64,
 }
 
 impl<'a> Reader<'a> {
@@ -96,15 +103,18 @@ impl<'a> Reader<'a> {
         let head = String::from_utf8_lossy(&bytes[..bytes.len().min(8192)]);
         let schema = IfcSchema::detect(&head)?;
         let index = build_entity_index(bytes);
+        let mut decoder = EntityDecoder::with_index(bytes, index);
+        let length_scale = decoder.length_unit_scale();
         Ok(Self {
             bytes,
             schema,
-            decoder: EntityDecoder::with_index(bytes, index),
+            decoder,
             warnings: Vec::new(),
             identities: BTreeMap::new(),
             placements: BTreeMap::new(),
             world_cache: BTreeMap::new(),
             unsupported: BTreeMap::new(),
+            length_scale,
         })
     }
 
@@ -333,7 +343,7 @@ impl<'a> Reader<'a> {
             _ => return None,
         };
         let point = self.decoder.decode_by_id(reference).ok()?;
-        coordinates(&point, "Coordinates")
+        coordinates(&point, "Coordinates").map(|p| p * self.length_scale)
     }
 
     fn direction_of(&mut self, entity: &DecodedEntity, name: &str) -> Option<DVec3> {
@@ -424,7 +434,7 @@ impl<'a> Reader<'a> {
 
     /// `IfcExtrudedAreaSolid` — the case that stays parametric and editable.
     fn swept_solid(&mut self, item: &DecodedEntity) -> Option<Representation> {
-        let depth = float_of(attr(item, "Depth")?)?;
+        let depth = float_of(attr(item, "Depth")?)? * self.length_scale;
         let direction = self
             .direction_of(item, "ExtrudedDirection")
             .unwrap_or(DVec3::Z);
@@ -464,7 +474,7 @@ impl<'a> Reader<'a> {
                 let mut profile = Vec::with_capacity(points.len());
                 for point in points {
                     let entity = self.decoder.decode_by_id(point).ok()?;
-                    let c = coordinates(&entity, "Coordinates")?;
+                    let c = coordinates(&entity, "Coordinates")? * self.length_scale;
                     profile.push([c.x, c.y]);
                 }
                 // A closed polyline repeats its first point; the model stores it once.
@@ -474,8 +484,8 @@ impl<'a> Reader<'a> {
                 Some(profile)
             }
             IfcType::IfcRectangleProfileDef => {
-                let x = float_of(attr(entity, "XDim")?)? * 0.5;
-                let y = float_of(attr(entity, "YDim")?)? * 0.5;
+                let x = float_of(attr(entity, "XDim")?)? * 0.5 * self.length_scale;
+                let y = float_of(attr(entity, "YDim")?)? * 0.5 * self.length_scale;
                 Some(vec![[-x, -y], [x, -y], [x, y], [-x, y]])
             }
             other => {
@@ -565,7 +575,11 @@ impl<'a> Reader<'a> {
             };
             let c: Vec<f64> = values.iter().filter_map(float_of).collect();
             if c.len() >= 3 {
-                vertices.push([c[0], c[1], c[2]]);
+                vertices.push([
+                    c[0] * self.length_scale,
+                    c[1] * self.length_scale,
+                    c[2] * self.length_scale,
+                ]);
             }
         }
         (!vertices.is_empty()).then_some(vertices)
@@ -733,7 +747,10 @@ impl<'a> Reader<'a> {
             let Some(name) = string_attr(&entity, "Name") else {
                 continue;
             };
-            let Some(value) = attr(&entity, "NominalValue").and_then(property_value) else {
+            let Some(value) = attr(&entity, "NominalValue")
+                .and_then(property_value)
+                .map(|v| scale_measure(v, self.length_scale))
+            else {
                 continue;
             };
             values.push((name, value));
@@ -864,6 +881,23 @@ fn typed_property(type_name: &str, value: &AttributeValue) -> Option<PropertyVal
             other => return property_value(other),
         },
     })
+}
+
+/// Convert a measure from file units into metres.
+///
+/// Areas and volumes take the square and cube of the length scale — a millimetre file
+/// reports areas a million times too large otherwise. Counts, text, and booleans are
+/// dimensionless and pass through untouched.
+fn scale_measure(value: PropertyValue, scale: f64) -> PropertyValue {
+    if scale == 1.0 {
+        return value;
+    }
+    match value {
+        PropertyValue::Length(v) => PropertyValue::Length(v * scale),
+        PropertyValue::Area(v) => PropertyValue::Area(v * scale * scale),
+        PropertyValue::Volume(v) => PropertyValue::Volume(v * scale * scale * scale),
+        other => other,
+    }
 }
 
 /// STEP writes booleans as the enumeration `.T.` / `.F.`.
@@ -1145,6 +1179,103 @@ mod tests {
             panic!("expected Other");
         };
         assert_eq!(name, "IFCTOTALLYMADEUPTHING", "unknown names stay verbatim");
+    }
+
+    /// A minimal file declaring millimetres, which is what real exporters overwhelmingly use.
+    fn millimetre_file() -> Vec<u8> {
+        concat!(
+            "ISO-10303-21;
+HEADER;
+",
+            "FILE_DESCRIPTION((''),'2;1');
+",
+            "FILE_NAME('mm.ifc','2026-08-27T00:00:00',(''),(''),'','','');
+",
+            "FILE_SCHEMA(('IFC4'));
+ENDSEC;
+DATA;
+",
+            "#1=IFCSIUNIT(*,.LENGTHUNIT.,.MILLI.,.METRE.);
+",
+            "#2=IFCUNITASSIGNMENT((#1));
+",
+            "#3=IFCCARTESIANPOINT((0.,0.,0.));
+",
+            "#4=IFCAXIS2PLACEMENT3D(#3,$,$);
+",
+            "#5=IFCGEOMETRICREPRESENTATIONCONTEXT($,'Model',3,1.E-05,#4,$);
+",
+            "#6=IFCPROJECT('0000000000000000000001',$,'P',$,$,$,$,(#5),#2);
+",
+            "#7=IFCCARTESIANPOINT((3000.,1500.,0.));
+",
+            "#8=IFCAXIS2PLACEMENT3D(#7,$,$);
+",
+            "#9=IFCLOCALPLACEMENT($,#8);
+",
+            "#10=IFCCARTESIANPOINT((0.,0.));
+",
+            "#11=IFCCARTESIANPOINT((4000.,0.));
+",
+            "#12=IFCCARTESIANPOINT((4000.,200.));
+",
+            "#13=IFCCARTESIANPOINT((0.,200.));
+",
+            "#14=IFCPOLYLINE((#10,#11,#12,#13,#10));
+",
+            "#15=IFCARBITRARYCLOSEDPROFILEDEF(.AREA.,$,#14);
+",
+            "#16=IFCDIRECTION((0.,0.,1.));
+",
+            "#17=IFCEXTRUDEDAREASOLID(#15,#4,#16,2400.);
+",
+            "#18=IFCSHAPEREPRESENTATION(#5,'Body','SweptSolid',(#17));
+",
+            "#19=IFCPRODUCTDEFINITIONSHAPE($,$,(#18));
+",
+            "#20=IFCWALL('0000000000000000000002',$,'W',$,$,#9,#19,$,$);
+",
+            "ENDSEC;
+END-ISO-10303-21;
+"
+        )
+        .as_bytes()
+        .to_vec()
+    }
+
+    #[test]
+    fn millimetres_are_converted_to_metres() {
+        // CADForge is metric-metres throughout, and real files are overwhelmingly millimetres.
+        // Reading one without scaling turns a 4 m wall into a 4 km one. This went unnoticed
+        // until a real file was put on screen and the scene reported 3000 metres across.
+        let mut model = Model::new();
+        IfcLiteBackend::new()
+            .read(&millimetre_file(), &mut model)
+            .expect("import succeeds");
+
+        let wall = model.by_class(&IfcClass::Wall).next().expect("the wall");
+        assert!(
+            (wall.placement.location - DVec3::new(3.0, 1.5, 0.0)).length() < 1e-9,
+            "placement not converted: {:?}",
+            wall.placement.location
+        );
+
+        let Some(Representation::ExtrudedAreaSolid { profile, depth, .. }) = &wall.representation
+        else {
+            panic!("expected a swept solid");
+        };
+        assert!((depth - 2.4).abs() < 1e-9, "depth not converted: {depth}");
+        let width = profile.iter().map(|p| p[0]).fold(f64::MIN, f64::max);
+        assert!((width - 4.0).abs() < 1e-9, "profile not converted: {width}");
+    }
+
+    #[test]
+    fn a_metre_file_is_left_alone() {
+        // The scale must be exactly 1 for a file already in metres, not 1.0000001.
+        let (original, _, wall_id) = authored_model();
+        let (imported, _) = round_trip(&original);
+        let wall = imported.get(&wall_id).expect("the wall");
+        assert_eq!(wall.placement.location, DVec3::new(2.0, 1.0, 0.0));
     }
 
     #[test]

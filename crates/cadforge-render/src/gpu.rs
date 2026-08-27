@@ -80,6 +80,9 @@ pub struct Renderer {
     pipeline: wgpu::RenderPipeline,
     bind_group: wgpu::BindGroup,
     uniform_buffer: wgpu::Buffer,
+    /// Colour format the pipeline was built for. Headless uses [`COLOR_FORMAT`]; a window
+    /// uses whatever its swapchain offers, which on most desktops is BGRA rather than RGBA.
+    format: wgpu::TextureFormat,
     width: u32,
     height: u32,
     backend: String,
@@ -91,20 +94,64 @@ impl Renderer {
     ///
     /// `PowerPreference::HighPerformance` picks the discrete GPU on a laptop with two.
     pub fn new_headless(width: u32, height: u32) -> Result<Self, GpuError> {
+        // wgpu 30 has no `InstanceDescriptor::default()`; headless means no display handle.
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
+        Self::new_for_target(&instance, None, Some(COLOR_FORMAT), width, height)
+    }
+
+    /// Bring up a device against a window surface.
+    ///
+    /// The surface must be passed as `compatible_surface` so the adapter chosen can actually
+    /// present to it — on a laptop with two GPUs, the fast one is not always the one wired to
+    /// the display.
+    /// The format is chosen from what the surface actually supports, preferring sRGB, rather
+    /// than guessed. Hardcoding `Bgra8UnormSrgb` works on most desktops and fails on the ones
+    /// it does not.
+    pub fn for_surface(
+        instance: &wgpu::Instance,
+        surface: &wgpu::Surface<'_>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, GpuError> {
+        Self::new_for_target(instance, Some(surface), None, width, height)
+    }
+
+    fn new_for_target(
+        instance: &wgpu::Instance,
+        surface: Option<&wgpu::Surface<'_>>,
+        format: Option<wgpu::TextureFormat>,
+        width: u32,
+        height: u32,
+    ) -> Result<Self, GpuError> {
         let width = width.max(1);
         let height = height.max(1);
 
-        // wgpu 30 has no `InstanceDescriptor::default()`; headless means no display handle.
-        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor::new_without_display_handle());
         let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
             power_preference: wgpu::PowerPreference::HighPerformance,
             force_fallback_adapter: false,
-            compatible_surface: None,
+            compatible_surface: surface,
             apply_limit_buckets: false,
         }))
         .map_err(|e| GpuError::NoAdapter(e.to_string()))?;
 
         let info = adapter.get_info();
+        let format = match (format, surface) {
+            (Some(format), _) => format,
+            (None, Some(surface)) => {
+                let capabilities = surface.get_capabilities(&adapter);
+                capabilities
+                    .formats
+                    .iter()
+                    .copied()
+                    .find(|f| f.is_srgb())
+                    .or_else(|| capabilities.formats.first().copied())
+                    .ok_or_else(|| {
+                        GpuError::Device("the surface supports no texture format".into())
+                    })?
+            }
+            (None, None) => COLOR_FORMAT,
+        };
+
         let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
             label: Some("cadforge"),
             // Nothing exotic: the baseline feature set is what ships everywhere, including
@@ -192,7 +239,7 @@ impl Renderer {
                 entry_point: Some("fs_main"),
                 compilation_options: Default::default(),
                 targets: &[Some(wgpu::ColorTargetState {
-                    format: COLOR_FORMAT,
+                    format,
                     blend: None,
                     write_mask: wgpu::ColorWrites::ALL,
                 })],
@@ -207,6 +254,7 @@ impl Renderer {
             pipeline,
             bind_group,
             uniform_buffer,
+            format,
             width,
             height,
             backend: format!("{:?}", info.backend),
@@ -224,53 +272,60 @@ impl Renderer {
         (self.width, self.height)
     }
 
-    /// Draw the meshes and read the framebuffer back as RGBA8.
-    pub fn render(&self, meshes: &[MeshData<'_>], camera: &Camera) -> Result<Vec<u8>, GpuError> {
+    pub fn format(&self) -> wgpu::TextureFormat {
+        self.format
+    }
+
+    /// The device, so a shell can configure its own surface against it.
+    pub fn device(&self) -> &wgpu::Device {
+        &self.device
+    }
+
+    pub fn queue(&self) -> &wgpu::Queue {
+        &self.queue
+    }
+
+    /// Tell the renderer the target changed size. The caller reconfigures its own surface.
+    pub fn resize(&mut self, width: u32, height: u32) {
+        self.width = width.max(1);
+        self.height = height.max(1);
+    }
+
+    /// A depth buffer matching the current size. Recreate it on every resize — a depth
+    /// texture smaller than the colour target is a validation error, not a soft failure.
+    pub fn create_depth_view(&self) -> wgpu::TextureView {
+        self.device
+            .create_texture(&wgpu::TextureDescriptor {
+                label: Some("depth"),
+                size: wgpu::Extent3d {
+                    width: self.width,
+                    height: self.height,
+                    depth_or_array_layers: 1,
+                },
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: DEPTH_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
+                view_formats: &[],
+            })
+            .create_view(&Default::default())
+    }
+
+    /// Draw into an existing colour view. This is the whole renderer; everything else is
+    /// about where the pixels end up.
+    ///
+    /// Identical for an offscreen texture, a desktop swapchain, and an iOS `CAMetalLayer` —
+    /// which is the claim ADR-0001 rests on.
+    pub fn render_to_view(
+        &self,
+        meshes: &[MeshData<'_>],
+        camera: &Camera,
+        color_view: &wgpu::TextureView,
+        depth_view: &wgpu::TextureView,
+    ) -> wgpu::CommandBuffer {
         let (vertices, indices) = flatten(meshes);
-
-        let uniforms = Uniforms {
-            view_projection: camera.view_projection_f32().to_cols_array_2d(),
-            // Over the viewer's shoulder, so surfaces facing the camera are lit.
-            light: {
-                let d = (camera.eye() - camera.target)
-                    .try_normalize()
-                    .unwrap_or(DVec3::Z);
-                [d.x as f32, d.y as f32, (d.z.abs() + 0.4) as f32, 0.0]
-            },
-        };
-        self.queue
-            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
-
-        let color = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("color"),
-            size: wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: COLOR_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-            view_formats: &[],
-        });
-        let depth = self.device.create_texture(&wgpu::TextureDescriptor {
-            label: Some("depth"),
-            size: wgpu::Extent3d {
-                width: self.width,
-                height: self.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: DEPTH_FORMAT,
-            usage: wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[],
-        });
-        let color_view = color.create_view(&Default::default());
-        let depth_view = depth.create_view(&Default::default());
+        self.write_uniforms(camera);
 
         let vertex_buffer = self
             .device
@@ -287,14 +342,6 @@ impl Renderer {
                 usage: wgpu::BufferUsages::INDEX,
             });
 
-        let bytes_per_row = (self.width * 4).div_ceil(COPY_ALIGNMENT) * COPY_ALIGNMENT;
-        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("readback"),
-            size: u64::from(bytes_per_row) * u64::from(self.height),
-            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
-            mapped_at_creation: false,
-        });
-
         let mut encoder = self
             .device
             .create_command_encoder(&wgpu::CommandEncoderDescriptor {
@@ -304,7 +351,7 @@ impl Renderer {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("main"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view: &color_view,
+                    view: color_view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
@@ -318,7 +365,7 @@ impl Renderer {
                     },
                 })],
                 depth_stencil_attachment: Some(wgpu::RenderPassDepthStencilAttachment {
-                    view: &depth_view,
+                    view: depth_view,
                     depth_ops: Some(wgpu::Operations {
                         load: wgpu::LoadOp::Clear(1.0),
                         store: wgpu::StoreOp::Store,
@@ -338,7 +385,58 @@ impl Renderer {
                 pass.draw_indexed(0..indices.len() as u32, 0, 0..1);
             }
         }
+        encoder.finish()
+    }
 
+    fn write_uniforms(&self, camera: &Camera) {
+        let uniforms = Uniforms {
+            view_projection: camera.view_projection_f32().to_cols_array_2d(),
+            // Over the viewer's shoulder, so surfaces facing the camera are lit.
+            light: {
+                let d = (camera.eye() - camera.target)
+                    .try_normalize()
+                    .unwrap_or(DVec3::Z);
+                [d.x as f32, d.y as f32, (d.z.abs() + 0.4) as f32, 0.0]
+            },
+        };
+        self.queue
+            .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
+    }
+
+    /// Draw the meshes and read the framebuffer back as RGBA8.
+    pub fn render(&self, meshes: &[MeshData<'_>], camera: &Camera) -> Result<Vec<u8>, GpuError> {
+        let color = self.device.create_texture(&wgpu::TextureDescriptor {
+            label: Some("color"),
+            size: wgpu::Extent3d {
+                width: self.width,
+                height: self.height,
+                depth_or_array_layers: 1,
+            },
+            mip_level_count: 1,
+            sample_count: 1,
+            dimension: wgpu::TextureDimension::D2,
+            format: self.format,
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+            view_formats: &[],
+        });
+        let color_view = color.create_view(&Default::default());
+        let depth_view = self.create_depth_view();
+
+        let draw = self.render_to_view(meshes, camera, &color_view, &depth_view);
+
+        let bytes_per_row = (self.width * 4).div_ceil(COPY_ALIGNMENT) * COPY_ALIGNMENT;
+        let readback = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("readback"),
+            size: u64::from(bytes_per_row) * u64::from(self.height),
+            usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
+            mapped_at_creation: false,
+        });
+
+        let mut encoder = self
+            .device
+            .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                label: Some("readback"),
+            });
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
                 texture: &color,
@@ -360,7 +458,7 @@ impl Renderer {
                 depth_or_array_layers: 1,
             },
         );
-        self.queue.submit(Some(encoder.finish()));
+        self.queue.submit([draw, encoder.finish()]);
 
         // Map, wait, and un-pad the rows back to a tight RGBA8 image.
         let slice = readback.slice(..);

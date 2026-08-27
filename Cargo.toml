@@ -44,6 +44,7 @@ wgpu = "30.0.1"
 pollster = "1.0.1"
 bytemuck = { version = "1", features = ["derive"] }
 png = "0.18"
+winit = "0.30.13"
 ifc-lite-core = "6.0.1"
 
 [profile.release]

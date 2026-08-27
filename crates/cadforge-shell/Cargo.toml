@@ -15,10 +15,18 @@ default = []
 # Enables the headless wgpu renderer (ADR-0001). Off by default so a plain `cargo test`
 # needs no GPU.
 gpu = ["cadforge-render/gpu"]
+# Phase 3b: a real window. Pulls in winit and wgpu, so it stays opt-in and a plain
+# `cargo test` still needs neither a display nor a GPU (ADR-0002).
+viewport = ["gpu", "dep:winit", "dep:wgpu"]
 
 [[bin]]
 name = "cadforge"
 path = "src/main.rs"
+
+[[bin]]
+name = "cadforge-viewport"
+path = "src/viewport.rs"
+required-features = ["viewport"]
 
 # ADR-0002: every platform and UI concern lives here and nowhere else. When the winit/wgpu
 # shell lands in Phase 3, no other crate changes.
@@ -30,6 +38,9 @@ cadforge-ifc.workspace = true
 cadforge-render.workspace = true
 anyhow.workspace = true
 glam.workspace = true
+
+winit = { workspace = true, optional = true }
+wgpu = { workspace = true, optional = true }
 
 [[example]]
 name = "logo"

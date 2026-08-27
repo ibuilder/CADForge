@@ -8,7 +8,39 @@ is `0`, the public API may change in any release.
 
 ## [Unreleased]
 
-Nothing yet.
+### Added
+
+- **A window.** `cadforge-viewport` (feature `viewport`) opens a real `winit` window on a
+  `wgpu` surface with orbit, pan, and zoom. Phase 3b.
+  - Give it an `.ifc` path and it imports and displays the file — the first place the reader,
+    the geometry pipeline, and the renderer are all load-bearing at once.
+  - `--frames N` renders N frames and exits, so the viewport is testable without a human.
+  - `--png <path>` renders headless and never opens a window, for thumbnails and for machines
+    with no display.
+- `Renderer::for_surface` and `render_to_view` — the renderer now draws to a swapchain or an
+  offscreen texture through one code path, which is the claim ADR-0001 rests on. The surface
+  format is taken from the surface's own capabilities rather than guessed.
+- **The CADForge mark**, authored rather than drawn: a 13-point closed profile swept into a
+  solid and rendered by CADForge (`examples/logo.rs`). An SVG twin carries the same points for
+  the favicon and site header.
+- **API documentation** published at <https://ibuilder.github.io/CADForge/api/>, built from
+  rustdoc on every push and generated at deploy time rather than committed.
+
+### Fixed
+
+- **Imported lengths ignored the file's units.** Real IFC is overwhelmingly in millimetres, and
+  CADForge is metric-metres throughout, so a 3 m wall was being read as 3 km. Placements,
+  profiles, extrusion depths, tessellated vertices, and `Length`/`Area`/`Volume` properties are
+  now all scaled by the project's `IfcUnitAssignment` — areas by the square of the scale and
+  volumes by the cube.
+
+  This survived every unit test, the whole corpus round trip, and IfcOpenShell validation,
+  because export and import shared the same wrong assumption and the corpus checks compared
+  counts rather than sizes. It took ten seconds to spot once a real file was on screen and the
+  scene reported *3000 metres across*. Now pinned by a test with an inline millimetre file.
+- Two rustdoc links that broke a `-D warnings` documentation build, one of which was
+  `cadforge-core` linking to a type in `cadforge-family` — a crate it deliberately does not
+  depend on. The doc build now enforces that boundary.
 
 ## [0.2.0] — 2026-08-27
 

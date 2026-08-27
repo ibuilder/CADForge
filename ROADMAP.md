@@ -8,9 +8,9 @@ evidence in [docs/research/LANDSCAPE.md](docs/research/LANDSCAPE.md).
 
 ## Status
 
-**Early development.** Four of eight phases are complete. CADForge can read and write IFC,
-author a building semantically, evaluate parametric families, cut openings, and render on the
-GPU. It has no window and no authoring tools.
+**Early development.** CADForge reads and writes IFC, authors a building semantically,
+evaluates parametric families, cuts openings, renders on the GPU, and **opens a window you can
+drop an IFC file into**. It has no authoring tools — everything is still driven from code.
 
 | Phase | State | What it means |
 |---|---|---|
@@ -19,7 +19,7 @@ GPU. It has no window and no authoring tools.
 | **2a — IFC out** | ✅ Complete | Native IFC4 writer, validated against IfcOpenShell |
 | **2b — IFC in** | ✅ Complete | Reads IFC4 and IFC4X3; all 23 corpus files round-trip intact |
 | **3a — Renderer** | ✅ Complete | Headless wgpu: pipeline, depth, culling, readback |
-| **3b — Viewport** | Planned | `winit` window, GPU picking, section planes, instancing |
+| **3b — Viewport** | Partial | Window, orbit/pan/zoom, and IFC display work; GPU picking, section planes, and instancing do not |
 | **4 — Families** | Partial | Definition, flexing, hosting, and IFC type export all work; library management does not |
 | **5 — Authoring** | Planned | Wall, slab, column, beam, and opening tools with native parametric output |
 | **6 — Mobile** | Planned | Android, then iOS |
@@ -62,10 +62,21 @@ the exporter was dropping every `IfcSpace` and every site past the first, and el
 IFC4X3 infrastructure spatial parts were being stranded. Both are fixed; see the
 [changelog](CHANGELOG.md).
 
-### 3. A window (Phase 3b)
+### 3. A window (Phase 3b) — mostly done
 
-The render pipeline is proven on hardware. What is unproven is the event loop, resize, and
-swapchain handling — and that is precisely the part that differs per platform.
+```bash
+cargo run -p cadforge-shell --features viewport --bin cadforge-viewport -- model.ifc
+```
+
+Opens a `winit` window on a `wgpu` surface, imports the file, and gives you orbit, pan, and
+zoom. `--png out.png` does the same headless.
+
+Putting a real file on screen immediately found a bug that every unit test, the whole corpus
+round trip, and IfcOpenShell validation had missed: **imported lengths ignored the file's
+units**, so a millimetre model came in a thousand times too large. Export and import shared the
+same wrong assumption, so nothing that compared them could see it.
+
+Still to do here: GPU picking, section planes, and instancing.
 
 ## Further out
 

@@ -63,6 +63,12 @@ cargo test --workspace
 cargo run -p cadforge-shell --features gpu
 ```
 
+Open an IFC file in a window:
+
+```bash
+cargo run -p cadforge-shell --features viewport --bin cadforge-viewport -- model.ifc
+```
+
 The demo drives the whole stack: it authors four walls through commands, defines a parametric
 door family, places it as a hosted opening (a real `IfcOpeningElement` + `IfcRelVoidsElement` +
 `IfcRelFillsElement`), cuts the wall, builds render fragments, frames a camera, culls, resolves
@@ -86,7 +92,8 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 | IFC **export** — native IFC4 writer, byte-reproducible, externally validated | ✅ |
 | Rendering — headless wgpu on real hardware, depth, culling, PNG output | ✅ |
 | IFC **import** — reads IFC4/IFC4X3, rebuilds relationships, keeps geometry as authored | ✅ |
-| A window | ❌ Phase 3b |
+| A window — `winit` + `wgpu`, orbit/pan/zoom, opens `.ifc` files | ✅ |
+| GPU picking, section planes, instancing | ❌ Phase 3b |
 | iOS / Android on a device | ❌ Compiled for, never run |
 | Authoring tools, snapping, constraints | ❌ Phase 5 |
 
