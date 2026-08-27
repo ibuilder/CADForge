@@ -20,6 +20,15 @@ Booleans go through `trait CsgBackend`, defaulting to the exact-arithmetic kerne
 
 Where an operation cannot be expressed as a recipe, it degrades **explicitly**: a tessellated representation, flagged in the UI and the validation report, with the source command preserved so a parametric representation can be regenerated later. ifc-semantics.md §6.2 already specifies this correctly and stands.
 
+## Qualified by ADR-0010
+
+The claim below that profile sweeps "cover the large majority of real building elements" is
+true of geometry CADForge **authors**. It turned out not to be true of geometry that
+**arrives**: a survey of buildingSMART's certification corpus found 710 of 719 shape
+representations were tessellated. See
+[ADR-0010](0010-tessellation-is-a-primary-import-path.md). The authoring strategy here is
+unchanged; the import strategy is not what this ADR implied.
+
 ## Consequences
 
 - Walls, slabs, columns, beams, openings, doors, windows, railings, ducts, and pipes are all profile sweeps. This covers the large majority of real building elements.

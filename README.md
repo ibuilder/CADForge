@@ -96,6 +96,8 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 - The GPU path runs on real hardware: AMD Radeon via Vulkan.
 - `ifc-lite-core` measured at **520 MB/s** over a 17.5 MB file, recovering the full parametric
   recipe — profile points and extrusion depth, not triangles.
+- Schema detection and parsing verified against **buildingSMART's 23 certification models** —
+  files CADForge did not write, including IFC4X3 that a naive prefix match would misread.
 
 ## Architecture
 

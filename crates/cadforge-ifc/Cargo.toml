@@ -26,3 +26,6 @@ ifc-lite-core = "6.0.1"
 
 [[example]]
 name = "ifclite_spike"
+
+[[example]]
+name = "corpus_survey"

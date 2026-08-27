@@ -29,14 +29,24 @@ IFC4. It cannot yet read IFC, and it has no window.
 
 Three things gate progress, in this order.
 
-### 1. An IFC test corpus
+### 1. An IFC test corpus ✅ *partly*
 
-Everything round-tripped so far was written by CADForge itself. That proves the format is
-self-consistent; it says nothing about a consultant's Revit export with duplicate `GlobalId`s,
-mis-nested placements, and geometry that fails to generate.
+buildingSMART's 23 certification sample models are now fetchable and surveyed:
 
-The corpus needs IFC2X3 and IFC4 files from Revit, Archicad, Tekla, and at least one
-coordination model that is genuinely broken. This is the gate on Phase 2b — not the parser.
+```bash
+python tools/fetch_corpus.py
+cargo run --release -p cadforge-ifc --example corpus_survey
+```
+
+They immediately overturned an architectural assumption — **710 of 719 shape representations
+are tessellated, not swept** ([ADR-0010](docs/adr/0010-tessellation-is-a-primary-import-path.md)) —
+and showed that only 43% of product instances map to a native `IfcClass`, with the rest
+largely infrastructure.
+
+**Still missing: vendor-exported architectural models.** Revit, Archicad, and Tekla output, plus
+at least one coordination model that is genuinely broken. The certification corpus is clean and
+skews to infrastructure; it cannot tell us how the importer behaves against duplicate
+`GlobalId`s, mis-nested placements, and geometry that fails to generate.
 
 ### 2. IFC import (Phase 2b)
 
@@ -47,6 +57,9 @@ triangles — with every `GlobalId` byte-for-byte.
 
 What remains is the projection layer from IFC entities to `ElementRecord`, plus honest
 handling of everything real files do wrong.
+
+The survey reshaped its design: it is **tessellation-first**, the opposite emphasis from the
+writer, and `IfcClass::Other` is the main path rather than an escape hatch.
 
 ### 3. A window (Phase 3b)
 
