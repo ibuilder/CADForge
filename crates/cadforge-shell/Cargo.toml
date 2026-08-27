@@ -1,6 +1,9 @@
 [package]
 name = "cadforge-shell"
-description = "CADForge platform shell. Phase 3 replaces this demo with winit + wgpu."
+description = "CADForge platform shell: the demo pipeline and the winit viewport"
+# Two binaries live here, so `cargo run -p cadforge-shell` needs to know which one it
+# means. Without this it is ambiguous, which broke the CI job that exports a model.
+default-run = "cadforge"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
