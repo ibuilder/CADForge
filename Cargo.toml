@@ -10,7 +10,7 @@ members = [
 ]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 rust-version = "1.85"
 license = "MPL-2.0"
@@ -44,6 +44,7 @@ wgpu = "30.0.1"
 pollster = "1.0.1"
 bytemuck = { version = "1", features = ["derive"] }
 png = "0.18"
+ifc-lite-core = "6.0.1"
 
 [profile.release]
 lto = "thin"

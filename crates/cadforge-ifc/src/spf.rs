@@ -355,6 +355,11 @@ impl<'a> Writer<'a> {
         // Spatial structure. Elements of the right class are used when the model has them,
         // and synthesised otherwise — a model authored from scratch has walls long before it
         // has a site, and refusing to export it would be useless behaviour.
+        //
+        // Only four classes form the spine (`is_structure_spine`). A space is spatial and can
+        // contain things, but it is written as a product: composing one project/site/building/
+        // storey chain is what keeps placements tractable. Importing the corpus caught the
+        // earlier version dropping every `IfcSpace`, and every site or building past the first.
         let storeys: Vec<&ElementRecord> = model.by_class(&IfcClass::BuildingStorey).collect();
         let buildings: Vec<&ElementRecord> = model.by_class(&IfcClass::Building).collect();
         let sites: Vec<&ElementRecord> = model.by_class(&IfcClass::Site).collect();
@@ -362,42 +367,63 @@ impl<'a> Writer<'a> {
         let mut storey_refs: BTreeMap<GlobalId, Ref> = BTreeMap::new();
         let mut storey_placements: BTreeMap<GlobalId, Ref> = BTreeMap::new();
 
-        let site_placement =
-            self.local_placement(sites.first().map(|s| s.placement).unwrap_or_default(), None);
-        let site_id = sites
-            .first()
-            .map(|s| s.global_id.clone())
-            .unwrap_or_else(|| self.synthetic("site"));
-        let site_name = sites
-            .first()
-            .and_then(|s| s.name.clone())
-            .unwrap_or_else(|| self.context.site_name.clone());
-        let site = self.add(format!(
-            "IFCSITE({},$,{},$,$,{site_placement},$,$,.ELEMENT.,$,$,$,$,$)",
-            guid(&site_id),
-            text(&site_name)
-        ));
+        // Every site, not just the first.
+        let mut site_refs = Vec::new();
+        let primary_site_placement = if sites.is_empty() {
+            let placement = self.local_placement(Placement::identity(), None);
+            let id = self.synthetic("site");
+            let name = self.context.site_name.clone();
+            site_refs.push(self.add(format!(
+                "IFCSITE({},$,{},$,$,{placement},$,$,.ELEMENT.,$,$,$,$,$)",
+                guid(&id),
+                text(&name)
+            )));
+            placement
+        } else {
+            let mut first = None;
+            for site in &sites {
+                let placement = self.local_placement(site.placement, None);
+                site_refs.push(self.add(format!(
+                    "IFCSITE({},$,{},$,$,{placement},$,$,.ELEMENT.,$,$,$,$,$)",
+                    guid(&site.global_id),
+                    text(site.name.as_deref().unwrap_or("Site"))
+                )));
+                first.get_or_insert(placement);
+            }
+            first.expect("sites is non-empty")
+        };
 
-        let building_placement = self.local_placement(
-            buildings.first().map(|b| b.placement).unwrap_or_default(),
-            Some(site_placement),
-        );
-        let building_id = buildings
-            .first()
-            .map(|b| b.global_id.clone())
-            .unwrap_or_else(|| self.synthetic("building"));
-        let building_name = buildings
-            .first()
-            .and_then(|b| b.name.clone())
-            .unwrap_or_else(|| self.context.building_name.clone());
-        let building = self.add(format!(
-            "IFCBUILDING({},$,{},$,$,{building_placement},$,$,.ELEMENT.,$,$,$)",
-            guid(&building_id),
-            text(&building_name)
-        ));
+        // Every building, aggregated under the first site.
+        let mut building_refs = Vec::new();
+        let primary_building_placement = if buildings.is_empty() {
+            let placement =
+                self.local_placement(Placement::identity(), Some(primary_site_placement));
+            let id = self.synthetic("building");
+            let name = self.context.building_name.clone();
+            building_refs.push(self.add(format!(
+                "IFCBUILDING({},$,{},$,$,{placement},$,$,.ELEMENT.,$,$,$)",
+                guid(&id),
+                text(&name)
+            )));
+            placement
+        } else {
+            let mut first = None;
+            for building in &buildings {
+                let placement =
+                    self.local_placement(building.placement, Some(primary_site_placement));
+                building_refs.push(self.add(format!(
+                    "IFCBUILDING({},$,{},$,$,{placement},$,$,.ELEMENT.,$,$,$)",
+                    guid(&building.global_id),
+                    text(building.name.as_deref().unwrap_or("Building"))
+                )));
+                first.get_or_insert(placement);
+            }
+            first.expect("buildings is non-empty")
+        };
 
         if storeys.is_empty() {
-            let placement = self.local_placement(Placement::identity(), Some(building_placement));
+            let placement =
+                self.local_placement(Placement::identity(), Some(primary_building_placement));
             let id = self.synthetic("storey");
             let storey = self.add(format!(
                 "IFCBUILDINGSTOREY({},$,'Level 00',$,$,{placement},$,$,.ELEMENT.,0.)",
@@ -407,7 +433,7 @@ impl<'a> Writer<'a> {
             storey_placements.insert(id, placement);
         } else {
             for s in &storeys {
-                let placement = self.local_placement(s.placement, Some(building_placement));
+                let placement = self.local_placement(s.placement, Some(primary_building_placement));
                 let storey = self.add(format!(
                     "IFCBUILDINGSTOREY({},$,{},$,$,{placement},$,$,.ELEMENT.,{})",
                     guid(&s.global_id),
@@ -426,33 +452,52 @@ impl<'a> Writer<'a> {
             text(&self.context.project_name)
         ));
 
-        self.relationship("IFCRELAGGREGATES", &format!("{project},({site})"));
-        self.relationship("IFCRELAGGREGATES", &format!("{site},({building})"));
-        let all_storeys: Vec<String> = storey_refs.values().map(|r| r.to_string()).collect();
+        let list = |refs: &[Ref]| -> String {
+            refs.iter()
+                .map(Ref::to_string)
+                .collect::<Vec<_>>()
+                .join(",")
+        };
         self.relationship(
             "IFCRELAGGREGATES",
-            &format!("{building},({})", all_storeys.join(",")),
+            &format!("{project},({})", list(&site_refs)),
+        );
+        self.relationship(
+            "IFCRELAGGREGATES",
+            &format!("{},({})", site_refs[0], list(&building_refs)),
+        );
+        let all_storeys: Vec<Ref> = storey_refs.values().copied().collect();
+        self.relationship(
+            "IFCRELAGGREGATES",
+            &format!("{},({})", building_refs[0], list(&all_storeys)),
         );
 
-        // Products.
+        // Products — everything that is not the structure spine, including spaces and the
+        // IFC4X3 facility parts that arrive as `IfcClass::Other`.
         let default_storey = storey_refs
             .keys()
             .next()
             .cloned()
             .expect("a storey is always present");
-        let mut contained: BTreeMap<GlobalId, Vec<Ref>> = BTreeMap::new();
         let mut element_refs: BTreeMap<GlobalId, Ref> = BTreeMap::new();
+        // Containment is resolved after the loop: a container may be a space written later
+        // than the element inside it.
+        let mut pending: Vec<(GlobalId, Ref)> = Vec::new();
 
         for element in model.iter() {
-            if element.class.is_spatial() {
+            if element.class.is_structure_spine() {
                 continue;
             }
             let container = element
                 .container
                 .clone()
-                .filter(|c| storey_refs.contains_key(c))
                 .unwrap_or_else(|| default_storey.clone());
-            let parent_placement = storey_placements.get(&container).copied();
+            // Placement nests under the storey chain where we have one; a space-contained
+            // element keeps its own placement, which is what the reader composed it against.
+            let parent_placement = storey_placements
+                .get(&container)
+                .copied()
+                .or(Some(primary_building_placement));
             let placement = self.local_placement(element.placement, parent_placement);
 
             let shape = match &element.representation {
@@ -467,12 +512,28 @@ impl<'a> Writer<'a> {
             // Openings reach the spatial structure through their host, not directly. Listing
             // them in IfcRelContainedInSpatialStructure as well is a validation error.
             if element.class != IfcClass::OpeningElement {
-                contained.entry(container).or_default().push(id);
+                pending.push((container, id));
             }
         }
 
-        for (storey_id, elements) in &contained {
-            let storey = storey_refs[storey_id];
+        // Anything spatial that was written as a product can also be a container.
+        let mut spatial_refs = storey_refs.clone();
+        for element in model.iter() {
+            if element.class.is_spatial() && !element.class.is_structure_spine() {
+                if let Some(reference) = element_refs.get(&element.global_id) {
+                    spatial_refs.insert(element.global_id.clone(), *reference);
+                }
+            }
+        }
+
+        let fallback = storey_refs[&default_storey];
+        let mut contained: BTreeMap<Ref, Vec<Ref>> = BTreeMap::new();
+        for (container, element) in pending {
+            let target = spatial_refs.get(&container).copied().unwrap_or(fallback);
+            contained.entry(target).or_default().push(element);
+        }
+
+        for (storey, elements) in &contained {
             let list: Vec<String> = elements.iter().map(|r| r.to_string()).collect();
             self.relationship(
                 "IFCRELCONTAINEDINSPATIALSTRUCTURE",
@@ -538,12 +599,13 @@ impl<'a> Writer<'a> {
             // UserDefinedOperationType
             IfcClass::Door => format!("IFCDOOR({common},$,$,$,$,$,$)"),
             IfcClass::Window => format!("IFCWINDOW({common},$,$,$,$,$,$)"),
-            // Spatial classes never reach here; they are handled by write_model.
-            IfcClass::Project
-            | IfcClass::Site
-            | IfcClass::Building
-            | IfcClass::BuildingStorey
-            | IfcClass::Space => format!("IFCBUILDINGELEMENTPROXY({common},$,$)"),
+            // GlobalId … Representation, LongName, CompositionType, PredefinedType,
+            // ElevationWithFlooring
+            IfcClass::Space => format!("IFCSPACE({common},$,.ELEMENT.,$,$)"),
+            // The spine never reaches here; write_model handles it.
+            IfcClass::Project | IfcClass::Site | IfcClass::Building | IfcClass::BuildingStorey => {
+                format!("IFCBUILDINGELEMENTPROXY({common},$,$)")
+            }
             // An unmodelled class keeps its original entity name in ObjectType rather than
             // being written as an entity whose attribute list is unknown. Lossy, but it
             // produces a readable file instead of a broken one.

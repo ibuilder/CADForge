@@ -15,12 +15,16 @@
 //! swaps in a real one (PLAN.md §7).
 
 pub mod backend;
+#[cfg(feature = "read")]
+pub mod reader;
 pub mod schema;
 pub mod spf;
 
 pub use backend::{
     BackendCapabilities, IfcBackend, ImportReport, ImportWarning, UnimplementedBackend,
 };
+#[cfg(feature = "read")]
+pub use reader::IfcLiteBackend;
 pub use schema::IfcSchema;
 pub use spf::{ExportContext, ExportedType, SpfBackend};
 

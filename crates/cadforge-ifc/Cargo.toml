@@ -13,19 +13,26 @@ categories.workspace = true
 # ADR-0003: the IFC library sits behind a trait and is swappable. No third-party IFC type
 # may reach cadforge-core. `ifc-lite` is the intended default, pending measurement against
 # the Phase 2 corpus (PLAN.md §10).
+[features]
+default = ["read"]
+# The read backend. Off by default only for a build that exports and never imports.
+read = ["dep:ifc-lite-core"]
+
 [dependencies]
 cadforge-core.workspace = true
 glam.workspace = true
 serde.workspace = true
 thiserror.workspace = true
+ifc-lite-core = { workspace = true, optional = true }
 
-# Spike only (PLAN.md §10 step 8): measuring ifc-lite before committing to it as the Phase 2b
-# read backend. A dev-dependency, so nothing shipped depends on it yet.
 [dev-dependencies]
-ifc-lite-core = "6.0.1"
+ifc-lite-core.workspace = true
 
 [[example]]
 name = "ifclite_spike"
 
 [[example]]
 name = "corpus_survey"
+
+[[example]]
+name = "corpus_import"

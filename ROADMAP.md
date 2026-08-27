@@ -8,16 +8,16 @@ evidence in [docs/research/LANDSCAPE.md](docs/research/LANDSCAPE.md).
 
 ## Status
 
-**Early development.** Three of eight phases are complete. CADForge can author a building
-semantically, evaluate parametric families, cut openings, render on the GPU, and write valid
-IFC4. It cannot yet read IFC, and it has no window.
+**Early development.** Four of eight phases are complete. CADForge can read and write IFC,
+author a building semantically, evaluate parametric families, cut openings, and render on the
+GPU. It has no window and no authoring tools.
 
 | Phase | State | What it means |
 |---|---|---|
 | **0 — Foundation** | ✅ Complete | Research, decisions, a compiling and tested workspace |
 | **1 — Core model** | ✅ Complete | Elements, commands with exact inverses, revisions, undo, spatial index |
 | **2a — IFC out** | ✅ Complete | Native IFC4 writer, validated against IfcOpenShell |
-| **2b — IFC in** | Next | Read IFC4 and project to `ElementRecord` |
+| **2b — IFC in** | ✅ Complete | Reads IFC4 and IFC4X3; all 23 corpus files round-trip intact |
 | **3a — Renderer** | ✅ Complete | Headless wgpu: pipeline, depth, culling, readback |
 | **3b — Viewport** | Planned | `winit` window, GPU picking, section planes, instancing |
 | **4 — Families** | Partial | Definition, flexing, hosting, and IFC type export all work; library management does not |
@@ -48,18 +48,19 @@ at least one coordination model that is genuinely broken. The certification corp
 skews to infrastructure; it cannot tell us how the importer behaves against duplicate
 `GlobalId`s, mis-nested placements, and geometry that fails to generate.
 
-### 2. IFC import (Phase 2b)
+### 2. IFC import (Phase 2b) ✅
 
-The backend is chosen on measurement rather than reputation
-([ADR-0009](docs/adr/0009-ifc-lite-as-the-read-backend.md)): `ifc-lite-core` scans at
-520 MB/s and recovers the full parametric recipe — profile points and extrusion depth, not
-triangles — with every `GlobalId` byte-for-byte.
+Done. All 23 corpus files import — 984 elements, one geometry failure, zero dangling
+references — and **all 23 survive import → export → import with every element intact**.
 
-What remains is the projection layer from IFC entities to `ElementRecord`, plus honest
-handling of everything real files do wrong.
+```bash
+cargo run --release -p cadforge-ifc --example corpus_import
+```
 
-The survey reshaped its design: it is **tessellation-first**, the opposite emphasis from the
-writer, and `IfcClass::Other` is the main path rather than an escape hatch.
+Pointing it at real files immediately found two bugs no test over our own output could reach:
+the exporter was dropping every `IfcSpace` and every site past the first, and elements inside
+IFC4X3 infrastructure spatial parts were being stranded. Both are fixed; see the
+[changelog](CHANGELOG.md).
 
 ### 3. A window (Phase 3b)
 

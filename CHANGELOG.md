@@ -10,6 +10,70 @@ is `0`, the public API may change in any release.
 
 Nothing yet.
 
+## [0.2.0] — 2026-08-27
+
+**CADForge can read IFC.** Phase 2b is complete, which closes the half of the product
+objective that was missing: import, not just export.
+
+### Added
+
+- **`IfcLiteBackend`** — a full IFC reader over `ifc-lite-core`, behind the `read` feature
+  (on by default). Products become `ElementRecord`s; `IfcRelVoidsElement`,
+  `IfcRelFillsElement`, `IfcRelContainedInSpatialStructure`, `IfcRelDefinesByType`, and
+  `IfcRelDefinesByProperties` are all rebuilt.
+- Geometry import: `IfcExtrudedAreaSolid` (with `IfcArbitraryClosedProfileDef` and
+  `IfcRectangleProfileDef`) stays **parametric**; `IfcTriangulatedFaceSet` and
+  `IfcPolygonalFaceSet` come back as themselves. Nothing is silently re-meshed.
+- `IfcLocalPlacement` chains are composed and re-expressed relative to the element's
+  container, which is the only approach correct for both a two-deep file we wrote and a real
+  file with assemblies nested inside storeys.
+- Property import keeps measure types: `IFCLENGTHMEASURE(2.4)` comes back as `Length`, not as
+  a bare real, because `ifc-lite` puts the type name in the typed-value list.
+- `Placement::from_matrix` — recovering a rigid placement from a composed transform.
+- `IfcClass::is_structure_spine()` — the four classes the exporter writes as structure, which
+  is deliberately narrower than `is_spatial()`.
+- **`tools/fetch_corpus.py`** — downloads buildingSMART's 23 certification models with
+  checksums. Files are fetched, never committed.
+- **`examples/corpus_survey`** and **`examples/corpus_import`** — what real files contain, and
+  what happens when we read them.
+
+### Verified
+
+- **195 tests**, zero clippy warnings, `cargo fmt` clean.
+- All 23 corpus files import: 984 elements, one geometry failure, zero dangling references.
+- **All 23 survive import → export → import with every element intact.**
+- The exporter still passes IfcOpenShell 0.8.5 validation after the spatial-structure rewrite.
+
+### Fixed
+
+Both found by pointing the importer at files CADForge did not write. Neither was reachable
+from any test over its own output.
+
+- **The exporter dropped `IfcSpace`, and every site or building past the first.** Spatial
+  classes were skipped wholesale in the product loop while only `sites.first()` and
+  `buildings.first()` were written as structure. `is_spatial()` and `is_structure_spine()` are
+  now different questions: a space is spatial — things live in it — but it is written as a
+  product.
+- **Elements inside IFC4X3 infrastructure spatial parts were stranded.** `IfcRoadPart`,
+  `IfcBridgePart`, and `IfcFacilityPart` arrive as `IfcClass::Other`, which was never spatial,
+  so every `AssignContainer` against one was rejected. One road model alone produced 38
+  dangling-reference warnings. `Other` is now spatial for a known list of entity names — a
+  list rather than a prefix rule, because `IfcSpatialZone` is spatial and `IfcSpaceHeater`
+  is not.
+
+Together: **151 dangling references → 0**, and files surviving a full round trip went from
+**5 of 23 to 23 of 23**.
+
+### Known limitations
+
+- Only buildingSMART's clean certification models have been tested. Vendor-exported
+  architectural models — Revit, Archicad, Tekla — and genuinely broken coordination files are
+  still unsourced, and remain the honest gap.
+- An element contained in an `IfcSpace` re-exports into its storey, not the space. No element
+  is lost; the containment is coarsened.
+- `IfcAdvancedBrep`, `IfcFacetedBrep`, CSG, and mapped representations are not read. The
+  element keeps its semantics and loses its shape, with a warning.
+
 ## [0.1.0] — 2026-08-26
 
 First public release. Phases 0, 2a, and 3a of the [roadmap](ROADMAP.md) are complete: the
@@ -115,5 +179,6 @@ all work and are tested. IFC **import** and a windowed viewport are not built ye
 - **Only CADForge-authored files have been round-tripped.** Robustness against real-world
   consultant exports is unproven.
 
-[Unreleased]: https://github.com/ibuilder/CADForge/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/ibuilder/CADForge/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/ibuilder/CADForge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/ibuilder/CADForge/releases/tag/v0.1.0

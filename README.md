@@ -22,10 +22,10 @@ Windows · macOS · Android · iOS — one renderer, one semantic core, one file
 ---
 
 > [!WARNING]
-> **Early development — not production ready.** Three of eight phases are complete. CADForge
-> can author a building semantically, flex parametric families, cut openings, render on the
-> GPU, and write valid IFC4. It **cannot read IFC yet** and it has **no window**. Every claim
-> below is measured; everything unbuilt is named in [ROADMAP.md](ROADMAP.md).
+> **Early development — not production ready.** Four of eight phases are complete. CADForge
+> reads and writes IFC, authors a building semantically, flexes parametric families, cuts
+> openings, and renders on the GPU. It has **no window** and **no authoring tools**. Every
+> claim below is measured; everything unbuilt is named in [ROADMAP.md](ROADMAP.md).
 
 ## Why this exists
 
@@ -80,7 +80,7 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 | Families — typed parameters, named types, recipe DAG, hosting, IFC type mapping | ✅ |
 | IFC **export** — native IFC4 writer, byte-reproducible, externally validated | ✅ |
 | Rendering — headless wgpu on real hardware, depth, culling, PNG output | ✅ |
-| IFC **import** | ❌ Phase 2b |
+| IFC **import** — reads IFC4/IFC4X3, rebuilds relationships, keeps geometry as authored | ✅ |
 | A window | ❌ Phase 3b |
 | iOS / Android on a device | ❌ Compiled for, never run |
 | Authoring tools, snapping, constraints | ❌ Phase 5 |
@@ -96,8 +96,9 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 - The GPU path runs on real hardware: AMD Radeon via Vulkan.
 - `ifc-lite-core` measured at **520 MB/s** over a 17.5 MB file, recovering the full parametric
   recipe — profile points and extrusion depth, not triangles.
-- Schema detection and parsing verified against **buildingSMART's 23 certification models** —
-  files CADForge did not write, including IFC4X3 that a naive prefix match would misread.
+- **All 23 of buildingSMART's certification models** import — 984 elements, one geometry
+  failure, zero dangling references — and **all 23 survive import → export → import with every
+  element intact**. Files CADForge did not write, including IFC4X3.
 
 ## Architecture
 
