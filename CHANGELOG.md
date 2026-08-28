@@ -33,6 +33,15 @@ is `0`, the public API may change in any release.
   not selectable, for grids and gizmos.
 - Clicking in the viewport selects an element and highlights it, distinguishing a click from
   the end of an orbit drag by how far the cursor moved.
+- **Section planes.** `SectionPlane` is GPU-free view state — the model never learns a section
+  exists — and the shader evaluates the identical `dot(normal, point) + offset > 0` test, so
+  the CPU and GPU answers agree by construction rather than by agreement. Up to four at once.
+  In the viewport: `X`/`Y`/`Z` cut through the model centre, `[`/`]` slide the cut, `C`
+  clears, `F` re-frames. Headless: `--section z --png out.png`.
+  - The pick pass clips too, so a click passes through sectioned-away geometry to whatever is
+    behind it. Selecting something you cannot see would be worse than not selecting at all.
+  - **Uncapped.** Back faces are culled, so a cut solid reads as a hole rather than a filled
+    section. Capping needs a stencil pass and is not done.
 
 ### Fixed
 

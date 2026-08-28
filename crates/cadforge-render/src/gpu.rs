@@ -16,6 +16,7 @@
 
 use crate::camera::Camera;
 use crate::fragment::FragmentId;
+use crate::section::{SectionPlane, MAX_SECTIONS};
 use bytemuck::{Pod, Zeroable};
 use glam::DVec3;
 use std::borrow::Cow;
@@ -80,6 +81,10 @@ struct Uniforms {
     /// `xyz` is the light direction; `w` is unused padding to keep the 16-byte alignment
     /// WGSL requires.
     light: [f32; 4],
+    /// Section planes as `[nx, ny, nz, offset]`, the same form `SectionPlane::keeps` uses.
+    planes: [[f32; 4]; MAX_SECTIONS],
+    /// Only `.x` carries the count; the rest is padding WGSL wants anyway.
+    plane_count: [u32; 4],
 }
 
 /// A headless wgpu renderer.
@@ -93,6 +98,8 @@ pub struct Renderer {
     /// Colour format the pipeline was built for. Headless uses [`COLOR_FORMAT`]; a window
     /// uses whatever its swapchain offers, which on most desktops is BGRA rather than RGBA.
     format: wgpu::TextureFormat,
+    /// View state, not model state: sections hide geometry without touching it.
+    sections: Vec<SectionPlane>,
     width: u32,
     height: u32,
     backend: String,
@@ -312,6 +319,7 @@ impl Renderer {
             bind_group,
             uniform_buffer,
             format,
+            sections: Vec::new(),
             width,
             height,
             backend: format!("{:?}", info.backend),
@@ -331,6 +339,24 @@ impl Renderer {
 
     pub fn format(&self) -> wgpu::TextureFormat {
         self.format
+    }
+
+    /// Replace the active section planes. At most [`MAX_SECTIONS`] are used.
+    ///
+    /// The pick pass clips too, so a click passes through a sectioned-away wall to whatever
+    /// is behind it — the same principle as sharing the depth test. Selecting something you
+    /// cannot see would be worse than not selecting at all.
+    pub fn set_sections(&mut self, planes: &[SectionPlane]) {
+        self.sections = planes
+            .iter()
+            .copied()
+            .filter(|p| !p.is_inactive())
+            .take(MAX_SECTIONS)
+            .collect();
+    }
+
+    pub fn sections(&self) -> &[SectionPlane] {
+        &self.sections
     }
 
     /// The device, so a shell can configure its own surface against it.
@@ -446,6 +472,11 @@ impl Renderer {
     }
 
     fn write_uniforms(&self, camera: &Camera) {
+        let mut planes = [[0.0f32; 4]; MAX_SECTIONS];
+        for (slot, plane) in planes.iter_mut().zip(&self.sections) {
+            *slot = plane.to_array();
+        }
+
         let uniforms = Uniforms {
             view_projection: camera.view_projection_f32().to_cols_array_2d(),
             // Over the viewer's shoulder, so surfaces facing the camera are lit.
@@ -455,6 +486,8 @@ impl Renderer {
                     .unwrap_or(DVec3::Z);
                 [d.x as f32, d.y as f32, (d.z.abs() + 0.4) as f32, 0.0]
             },
+            planes,
+            plane_count: [self.sections.len() as u32, 0, 0, 0],
         };
         self.queue
             .write_buffer(&self.uniform_buffer, 0, bytemuck::bytes_of(&uniforms));
@@ -763,6 +796,8 @@ const SHADER: &str = r#"
 struct Uniforms {
     view_projection: mat4x4<f32>,
     light: vec4<f32>,
+    planes: array<vec4<f32>, 4>,
+    plane_count: vec4<u32>,
 };
 
 @group(0) @binding(0) var<uniform> u: Uniforms;
@@ -773,7 +808,20 @@ struct VsOut {
     @location(1) color: vec3<f32>,
     // Flat: an identity must not be smeared across a triangle.
     @location(2) @interpolate(flat) id: u32,
+    // World position, so section planes can be evaluated per fragment.
+    @location(3) world: vec3<f32>,
 };
+
+// Discard anything a section plane hides. Both fragment stages call this, so what you see
+// and what you can click stay the same set of pixels.
+fn clip_to_sections(world: vec3<f32>) {
+    for (var i = 0u; i < u.plane_count.x; i = i + 1u) {
+        let plane = u.planes[i];
+        if (dot(plane.xyz, world) + plane.w > 0.0) {
+            discard;
+        }
+    }
+}
 
 @vertex
 fn vs_main(
@@ -787,6 +835,7 @@ fn vs_main(
     out.normal = normal;
     out.color = color;
     out.id = id;
+    out.world = position;
     return out;
 }
 
@@ -794,6 +843,7 @@ fn vs_main(
 // target is Rgba8Unorm, so each channel stores its byte exactly.
 @fragment
 fn fs_pick(in: VsOut) -> @location(0) vec4<f32> {
+    clip_to_sections(in.world);
     return vec4<f32>(
         f32(in.id & 0xFFu) / 255.0,
         f32((in.id >> 8u) & 0xFFu) / 255.0,
@@ -804,6 +854,7 @@ fn fs_pick(in: VsOut) -> @location(0) vec4<f32> {
 
 @fragment
 fn fs_main(in: VsOut) -> @location(0) vec4<f32> {
+    clip_to_sections(in.world);
     let n = normalize(in.normal);
     let l = normalize(u.light.xyz);
     // Half-lambert, so faces turned away from the light stay readable rather than going
@@ -1266,6 +1317,135 @@ mod tests {
         let second = renderer.pick(&meshes, &camera, 64, 64).unwrap();
         assert_eq!(first, second);
         assert_eq!(first, Some(id));
+    }
+
+    /// Count pixels that clearly belong to the object rather than the clear colour.
+    fn lit(pixels: &[u8]) -> usize {
+        pixels
+            .chunks_exact(4)
+            .filter(|p| p[0] > 60 && p[0] > p[2] + 30)
+            .count()
+    }
+
+    #[test]
+    fn a_section_plane_hides_what_it_cuts_away() {
+        let Some(mut renderer) = renderer(256, 256) else {
+            return;
+        };
+        let (positions, normals, indices) = cube();
+        let meshes = [MeshData {
+            positions: &positions,
+            normals: &normals,
+            indices: &indices,
+            color: [0.85, 0.55, 0.25],
+            id: FragmentId(1),
+        }];
+
+        let mut camera = Camera::default();
+        camera.set_viewport(256, 256);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::splat(-0.5),
+            DVec3::splat(0.5),
+        ));
+
+        let whole = lit(&renderer.render(&meshes, &camera).unwrap());
+        assert!(whole > 1000, "the cube should be clearly visible first");
+
+        // Cut through the middle. Back faces are culled, so the far side of the cut is not
+        // drawn either — the result is a hole, not a capped section. That is uncapped
+        // sectioning, and it is documented rather than dressed up.
+        renderer.set_sections(&[SectionPlane::through(DVec3::ZERO, DVec3::X)]);
+        let sectioned = lit(&renderer.render(&meshes, &camera).unwrap());
+
+        assert!(
+            sectioned < whole,
+            "sectioning must remove pixels: {sectioned} vs {whole}"
+        );
+
+        // And it comes back. A section is view state; nothing was destroyed.
+        renderer.set_sections(&[]);
+        assert_eq!(lit(&renderer.render(&meshes, &camera).unwrap()), whole);
+    }
+
+    #[test]
+    fn a_pick_cannot_hit_what_a_section_hid() {
+        // The pick pass clips too. Selecting a wall you cannot see would be worse than not
+        // selecting at all — the same reasoning as sharing the depth test.
+        let Some(mut renderer) = renderer(256, 256) else {
+            return;
+        };
+        let (near_pos, near_norm, near_idx, near_id) = tagged_cube(-2.0, 3);
+        let (far_pos, far_norm, far_idx, far_id) = tagged_cube(2.0, 4);
+        let meshes = [
+            MeshData {
+                positions: &near_pos,
+                normals: &near_norm,
+                indices: &near_idx,
+                color: [0.8, 0.3, 0.3],
+                id: near_id,
+            },
+            MeshData {
+                positions: &far_pos,
+                normals: &far_norm,
+                indices: &far_idx,
+                color: [0.3, 0.3, 0.8],
+                id: far_id,
+            },
+        ];
+
+        let mut camera = Camera::default();
+        camera.set_viewport(256, 256);
+        camera.frame(&cadforge_core::BoundingBox::new(
+            DVec3::new(-2.5, -0.5, -0.5),
+            DVec3::new(2.5, 0.5, 0.5),
+        ));
+
+        let project = |point: DVec3| -> (u32, u32) {
+            let clip = camera.view_projection() * point.extend(1.0);
+            let ndc = clip.truncate() / clip.w;
+            (
+                ((ndc.x * 0.5 + 0.5) * 256.0) as u32,
+                ((0.5 - ndc.y * 0.5) * 256.0) as u32,
+            )
+        };
+        let (x, y) = project(DVec3::new(2.0, 0.0, 0.0));
+        assert_eq!(renderer.pick(&meshes, &camera, x, y).unwrap(), Some(far_id));
+
+        // Hide everything at positive X, which is the cube we just picked.
+        renderer.set_sections(&[SectionPlane::through(DVec3::ZERO, DVec3::X)]);
+        assert_eq!(
+            renderer.pick(&meshes, &camera, x, y).unwrap(),
+            None,
+            "a sectioned-away cube must not be selectable"
+        );
+    }
+
+    #[test]
+    fn sections_are_capped_at_the_uniform_size() {
+        let Some(mut renderer) = renderer(64, 64) else {
+            return;
+        };
+        let many: Vec<SectionPlane> = (0..MAX_SECTIONS + 4)
+            .map(|i| SectionPlane::through(DVec3::splat(i as f64), DVec3::X))
+            .collect();
+        renderer.set_sections(&many);
+        assert_eq!(renderer.sections().len(), MAX_SECTIONS);
+    }
+
+    #[test]
+    fn inactive_planes_are_dropped_rather_than_uploaded() {
+        // A zero-normal plane would evaluate to `0 + offset > 0` for every fragment, which
+        // either hides everything or nothing depending on the offset. Neither is meaningful,
+        // so it never reaches the GPU.
+        let Some(mut renderer) = renderer(64, 64) else {
+            return;
+        };
+        renderer.set_sections(&[
+            SectionPlane::none(),
+            SectionPlane::through(DVec3::ZERO, DVec3::Z),
+            SectionPlane::none(),
+        ]);
+        assert_eq!(renderer.sections().len(), 1);
     }
 
     #[test]

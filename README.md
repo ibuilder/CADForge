@@ -94,7 +94,8 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 | IFC **import** — reads IFC4/IFC4X3, rebuilds relationships, keeps geometry as authored | ✅ |
 | A window — `winit` + `wgpu`, orbit/pan/zoom, opens `.ifc` files | ✅ |
 | GPU picking — click an element, get its `GlobalId` | ✅ |
-| Section planes, instancing | ❌ Phase 3b |
+| Section planes — `X`/`Y`/`Z` cut through the model, picking respects them | ✅ |
+| Capped sections, instancing | ❌ Phase 3b |
 | iOS / Android on a device | ❌ Compiled for, never run |
 | Authoring tools, snapping, constraints | ❌ Phase 5 |
 

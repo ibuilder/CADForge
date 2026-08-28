@@ -19,7 +19,7 @@ drop an IFC file into**. It has no authoring tools — everything is still drive
 | **2a — IFC out** | ✅ Complete | Native IFC4 writer, validated against IfcOpenShell |
 | **2b — IFC in** | ✅ Complete | Reads IFC4 and IFC4X3; all 23 corpus files round-trip intact |
 | **3a — Renderer** | ✅ Complete | Headless wgpu: pipeline, depth, culling, readback |
-| **3b — Viewport** | Partial | Window, orbit/pan/zoom, IFC display, and GPU picking work; section planes and instancing do not |
+| **3b — Viewport** | Partial | Window, orbit/pan/zoom, IFC display, GPU picking, and section planes work; instancing and capped sections do not |
 | **4 — Families** | Partial | Definition, flexing, hosting, and IFC type export all work; library management does not |
 | **5 — Authoring** | Planned | Wall, slab, column, beam, and opening tools with native parametric output |
 | **6 — Mobile** | Planned | Android, then iOS |
@@ -76,8 +76,12 @@ round trip, and IfcOpenShell validation had missed: **imported lengths ignored t
 units**, so a millimetre model came in a thousand times too large. Export and import shared the
 same wrong assumption, so nothing that compared them could see it.
 
-Clicking selects: the pick pass shares the shading pass depth test, so what you click and
-what you see cannot disagree. Still to do here: section planes and instancing.
+Clicking selects, and `X`/`Y`/`Z` section through the model centre. Both the pick pass and
+the section test are shared with the shading pass, so what you see, what you can click, and
+what a section hides are the same set of pixels by construction.
+
+Still to do here: instancing, and capping sections so a cut solid reads as filled rather than
+hollow.
 
 ## Further out
 

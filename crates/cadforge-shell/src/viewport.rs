@@ -22,12 +22,13 @@ use anyhow::{Context, Result};
 use cadforge_core::{BoundingBox, GlobalId, IfcClass, Model, Representation};
 use cadforge_geom::{extrude_along, IndexedMesh, Profile};
 use cadforge_ifc::{IfcBackend, IfcLiteBackend};
-use cadforge_render::{Camera, FragmentId, MeshData, Renderer};
+use cadforge_render::{Camera, FragmentId, MeshData, Renderer, SectionPlane};
 use glam::{DMat4, DVec2, DVec3};
 use std::sync::Arc;
 use winit::application::ApplicationHandler;
-use winit::event::{ElementState, MouseButton, MouseScrollDelta, WindowEvent};
+use winit::event::{ElementState, KeyEvent, MouseButton, MouseScrollDelta, WindowEvent};
 use winit::event_loop::{ActiveEventLoop, ControlFlow, EventLoop};
+use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 /// How far the camera orbits per pixel of drag.
@@ -38,12 +39,14 @@ const PAN_PER_PIXEL: f64 = 0.0018;
 fn main() -> Result<()> {
     let mut frames = None;
     let mut png = None;
+    let mut section = None;
     let mut path = None;
     let mut args = std::env::args().skip(1);
     while let Some(arg) = args.next() {
         match arg.as_str() {
             "--frames" => frames = args.next().and_then(|n| n.parse::<u32>().ok()),
             "--png" => png = args.next(),
+            "--section" => section = args.next().and_then(|a| axis_of(&a)),
             other => path = Some(other.to_string()),
         }
     }
@@ -68,7 +71,11 @@ fn main() -> Result<()> {
     // Headless: render one frame to a file and never open a window. Useful for thumbnails,
     // for CI, and for looking at a model on a machine with no display.
     if let Some(png) = png {
-        let renderer = Renderer::new_headless(1600, 1000)?;
+        let mut renderer = Renderer::new_headless(1600, 1000)?;
+        if let Some(axis) = section {
+            renderer.set_sections(&[SectionPlane::halving(&scene.bounds, axis)]);
+            println!("section             cutting at the model centre along {axis}");
+        }
         let mut camera = Camera::default();
         camera.set_viewport(1600, 1000);
         camera.frame(&scene.bounds);
@@ -86,6 +93,21 @@ fn main() -> Result<()> {
         .run_app(&mut App::new(scene, frames))
         .context("running the event loop")?;
     Ok(())
+}
+
+/// `x`, `-y`, `z` and so on.
+fn axis_of(name: &str) -> Option<DVec3> {
+    let (sign, letter) = match name.strip_prefix('-') {
+        Some(rest) => (-1.0, rest),
+        None => (1.0, name),
+    };
+    let axis = match letter.to_ascii_lowercase().as_str() {
+        "x" => DVec3::X,
+        "y" => DVec3::Y,
+        "z" => DVec3::Z,
+        _ => return None,
+    };
+    Some(axis * sign)
 }
 
 /// Everything to draw, already in world space.
@@ -260,6 +282,8 @@ struct App {
     press_at: Option<DVec2>,
     /// Render this many frames then exit, so the viewport is testable without a human.
     frames_left: Option<u32>,
+    /// The active section, if any. View state — the model never learns about it.
+    section: Option<SectionPlane>,
 }
 
 impl App {
@@ -273,6 +297,7 @@ impl App {
             cursor: None,
             press_at: None,
             frames_left: frames,
+            section: None,
         }
     }
 
@@ -346,6 +371,9 @@ impl ApplicationHandler for App {
 
         println!("gpu                 {}", renderer.adapter_description());
         println!("window              {}×{}", size.width, size.height);
+        println!(
+            "keys                X/Y/Z section · [ ] slide · C clear · F frame · click to select"
+        );
 
         self.gpu = Some(Surface {
             surface,
@@ -363,6 +391,42 @@ impl ApplicationHandler for App {
     fn window_event(&mut self, event_loop: &ActiveEventLoop, _id: WindowId, event: WindowEvent) {
         match event {
             WindowEvent::CloseRequested => event_loop.exit(),
+
+            WindowEvent::KeyboardInput {
+                event:
+                    KeyEvent {
+                        physical_key: PhysicalKey::Code(code),
+                        state: ElementState::Pressed,
+                        ..
+                    },
+                ..
+            } => {
+                // X/Y/Z section through the model centre, [ and ] slide the cut, C clears it.
+                let step = self.scene.bounds.size().max_element() * 0.05;
+                self.section = match code {
+                    KeyCode::KeyX => Some(SectionPlane::halving(&self.scene.bounds, DVec3::X)),
+                    KeyCode::KeyY => Some(SectionPlane::halving(&self.scene.bounds, DVec3::Y)),
+                    KeyCode::KeyZ => Some(SectionPlane::halving(&self.scene.bounds, DVec3::Z)),
+                    KeyCode::BracketLeft => self.section.map(|p| p.offset_by(-step)),
+                    KeyCode::BracketRight => self.section.map(|p| p.offset_by(step)),
+                    KeyCode::KeyC | KeyCode::Escape => None,
+                    KeyCode::KeyF => {
+                        self.camera.frame(&self.scene.bounds);
+                        self.section
+                    }
+                    _ => return,
+                };
+
+                if let Some(gpu) = &mut self.gpu {
+                    match self.section {
+                        Some(plane) => gpu.renderer.set_sections(&[plane]),
+                        None => gpu.renderer.set_sections(&[]),
+                    }
+                }
+                if let Some(window) = &self.window {
+                    window.request_redraw();
+                }
+            }
 
             WindowEvent::Resized(size) => {
                 self.configure(size.width, size.height);
