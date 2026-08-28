@@ -27,10 +27,11 @@ Tested on Windows, macOS, and Linux. Android and iOS are targets, not yet run on
 ---
 
 > [!WARNING]
-> **Early development — not production ready.** Four of eight phases are complete. CADForge
-> reads and writes IFC, authors a building semantically, flexes parametric families, cuts
-> openings, and renders on the GPU. It has **no window** and **no authoring tools**. Every
-> claim below is measured; everything unbuilt is named in [ROADMAP.md](ROADMAP.md).
+> **Early development — not production ready.** CADForge reads and writes IFC, authors a
+> building semantically, flexes parametric families, cuts openings, renders on the GPU, and
+> **draws walls, slabs, and columns in a window**. It has no constraints, no way to edit an
+> element after drawing it, and has never run on a phone. Every claim below is measured;
+> everything unbuilt is named in [ROADMAP.md](ROADMAP.md).
 
 ## Why this exists
 
@@ -44,6 +45,13 @@ done it for AEC. That is the gap, and the reasoning is documented in
 [docs/research/LANDSCAPE.md](docs/research/LANDSCAPE.md) with dated sources.
 
 ## It draws
+
+![A room drawn with the authoring tools](site/assets/drawn.png)
+
+Four walls, a slab, and two columns, drawn with the tools rather than authored in code — and
+every click deliberately aimed 29 mm off the coordinate it wanted. Snapping is what makes the
+eight wall ends meet exactly rather than nearly; the example asserts it to the nanometre, and
+the whole thing exports as swept solids that IfcOpenShell accepts.
 
 | Walls and a hosted door | The same frame, door hidden |
 |---|---|
@@ -63,10 +71,16 @@ cargo test --workspace
 cargo run -p cadforge-shell --features gpu
 ```
 
-Open an IFC file in a window:
+Open an IFC file in a window, and draw in it — `2` for the wall tool, then click:
 
 ```bash
 cargo run -p cadforge-shell --features viewport --bin cadforge-viewport -- model.ifc
+```
+
+Draw a room without a window at all, and export it:
+
+```bash
+cargo run -p cadforge-shell --features gpu --example drawn_room
 ```
 
 The demo drives the whole stack: it authors four walls through commands, defines a parametric
@@ -95,19 +109,23 @@ pip install ifcopenshell && python tools/validate_ifc.py out/demo.ifc
 | A window — `winit` + `wgpu`, orbit/pan/zoom, opens `.ifc` files | ✅ |
 | GPU picking — click an element, get its `GlobalId` | ✅ |
 | Section planes — `X`/`Y`/`Z` cut through the model, picking respects them | ✅ |
+| Drawing — wall, slab, and column tools with snapping, undo, and a live preview | ✅ |
 | Capped sections, instancing | ❌ Phase 3b |
+| Beams, hand-placed openings, editing an element after drawing it | ❌ Phase 5 |
+| Dimensional constraints | ❌ Phase 5 |
 | iOS / Android on a device | ❌ Compiled for, never run |
-| Authoring tools, snapping, constraints | ❌ Phase 5 |
 
 ## Verified, not asserted
 
-- **179 tests** (186 with `--features gpu`), zero clippy warnings, `cargo fmt` clean.
+- **249 tests** (266 with `--features gpu`), zero clippy warnings, `cargo fmt` clean.
 - Exported IFC4 checked against **IfcOpenShell 0.8.5**: no schema or EXPRESS rule violations,
   every relationship resolves, geometry generates for every element from the swept solids
   alone, every `GlobalId` survives a round trip.
 - The viewer and the exported file agree on wall volume to the cubic centimetre — **15.21 m³**
   on both sides, with IfcOpenShell independently applying the door void.
 - The GPU path runs on real hardware: AMD Radeon via Vulkan.
+- A room **drawn with the tools** from clicks 29 mm off target closes to the nanometre, exports
+  as 7 swept solids and 0 tessellated ones, and passes IfcOpenShell in CI.
 - `ifc-lite-core` measured at **520 MB/s** over a 17.5 MB file, recovering the full parametric
   recipe — profile points and extrusion depth, not triangles.
 - **All 23 of buildingSMART's certification models** import — 984 elements, one geometry
@@ -123,7 +141,8 @@ crates/
   cadforge-family   parametric families — params, types, recipe DAG, hosting  ← the differentiator
   cadforge-ifc      trait IfcBackend + a native IFC4 STEP writer
   cadforge-render   fragments, camera, culling + a headless wgpu renderer (feature `gpu`)
-  cadforge-shell    platform entry points; today a demo pipeline, Phase 3b makes it winit+wgpu
+  cadforge-tools    drawing tools — picked points in, commands out; no platform dependencies
+  cadforge-shell    platform entry points: the demo pipeline and the winit+wgpu viewport
 ```
 
 Four boundaries the codebase enforces:
@@ -139,7 +158,7 @@ Four boundaries the codebase enforces:
 
 ## The decisions that shape it
 
-Nine [ADRs](docs/adr/) carry the evidence, the costs, and what would make each wrong. The three
+Ten [ADRs](docs/adr/) carry the evidence, the costs, and what would make each wrong. The three
 that matter most:
 
 **[No webview for the viewport](docs/adr/0001-native-shell-over-webview.md).** WebGPU is absent

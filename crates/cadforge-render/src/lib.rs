@@ -19,7 +19,7 @@ pub mod section;
 #[cfg(feature = "gpu")]
 pub mod gpu;
 
-pub use camera::Camera;
+pub use camera::{Camera, Ray};
 pub use cull::Frustum;
 pub use fragment::{FragmentId, FragmentSet, GeometrySource, RenderFragment};
 pub use section::{SectionPlane, MAX_SECTIONS};

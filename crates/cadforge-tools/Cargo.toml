@@ -1,0 +1,26 @@
+[package]
+name = "cadforge-tools"
+description = "CADForge authoring tools: the interaction model behind wall, slab, and column drawing"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+# No platform dependencies, on purpose (ADR-0002). A drawing tool is a state machine over
+# picked points that emits commands; none of that needs a window, and keeping it out of the
+# shell is what makes it testable without one.
+[dependencies]
+cadforge-core.workspace = true
+cadforge-geom.workspace = true
+glam.workspace = true
+serde.workspace = true
+thiserror.workspace = true
+
+# The integration test asks a different question from the unit tests: not "does the model
+# accept this" but "does it survive a file". That needs the exporter, and only for tests.
+[dev-dependencies]
+cadforge-ifc.workspace = true

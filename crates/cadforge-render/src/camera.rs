@@ -5,13 +5,47 @@
 //! of a 0..1 depth range, matching `glam`'s `perspective_rh`.
 
 use cadforge_core::BoundingBox;
-use glam::{DMat4, DVec3, Mat4};
+use glam::{DMat4, DVec2, DVec3, Mat4};
 // glam 0.33 deprecated the inherent `DMat4::look_at_rh` / `perspective_rh` constructors in
 // favour of these explicit modules. `directx` is the 0..1 depth, Y-up convention wgpu uses;
 // the `vulkan` sibling flips Y and would render the whole scene upside down.
 use glam::dcamera::rh::proj::directx::perspective;
 use glam::dcamera::rh::view::look_at_mat4;
 use serde::{Deserialize, Serialize};
+
+/// A world-space ray, as cast from a pixel.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Ray {
+    pub origin: DVec3,
+    /// Unit length.
+    pub direction: DVec3,
+}
+
+impl Ray {
+    /// Where this ray meets a plane, if it does.
+    ///
+    /// `None` when the ray is parallel to the plane, or when the hit is behind the camera —
+    /// a placement tool must not silently drop a wall behind the viewer because the ground
+    /// plane happens to extend there.
+    pub fn intersect_plane(&self, point_on_plane: DVec3, normal: DVec3) -> Option<DVec3> {
+        let normal = normal.try_normalize()?;
+        let denominator = normal.dot(self.direction);
+        // Near-parallel is treated as no hit: the intersection would be arbitrarily far away
+        // and numerically worthless.
+        if denominator.abs() < 1e-9 {
+            return None;
+        }
+        let distance = normal.dot(point_on_plane - self.origin) / denominator;
+        (distance >= 0.0).then(|| self.origin + self.direction * distance)
+    }
+
+    /// Where this ray meets the horizontal plane at a given height.
+    ///
+    /// The workhorse: almost every placement gesture is "somewhere on this storey".
+    pub fn intersect_ground(&self, elevation: f64) -> Option<DVec3> {
+        self.intersect_plane(DVec3::new(0.0, 0.0, elevation), DVec3::Z)
+    }
+}
 
 /// Pitch is clamped just short of vertical: looking exactly along the up axis makes the view
 /// matrix degenerate and the camera flip.
@@ -127,6 +161,36 @@ impl Camera {
         // Keep the clip range sane for the new scale, or the depth buffer collapses.
         self.z_near = (self.distance * 1e-4).max(1e-3);
         self.z_far = (self.distance + radius * 4.0).max(self.z_near * 10.0);
+    }
+
+    /// The world-space ray under a pixel.
+    ///
+    /// Unprojects the near and far plane points and joins them, rather than reconstructing a
+    /// direction from the camera basis. Both give the same answer for a perspective camera,
+    /// but only this one keeps working if the projection is ever changed to orthographic —
+    /// which a CAD viewport eventually wants for elevations.
+    pub fn ray_at(&self, pixel: DVec2, viewport: DVec2) -> Ray {
+        let width = viewport.x.max(1.0);
+        let height = viewport.y.max(1.0);
+        // Pixel space is y-down; normalised device coordinates are y-up.
+        let ndc = DVec2::new(
+            (pixel.x / width) * 2.0 - 1.0,
+            1.0 - (pixel.y / height) * 2.0,
+        );
+
+        let inverse = self.view_projection().inverse();
+        // Depth runs 0..1 here, matching the projection this crate builds.
+        let unproject = |depth: f64| -> DVec3 {
+            let point = inverse * glam::DVec4::new(ndc.x, ndc.y, depth, 1.0);
+            point.truncate() / point.w
+        };
+
+        let near = unproject(0.0);
+        let far = unproject(1.0);
+        Ray {
+            origin: near,
+            direction: (far - near).try_normalize().unwrap_or(DVec3::Z),
+        }
     }
 
     pub fn set_viewport(&mut self, width: u32, height: u32) {
@@ -274,6 +338,108 @@ mod tests {
         // A pure sideways pan must not move along the viewing direction.
         let forward = (camera.target - camera.eye()).normalize();
         assert!(moved.normalize().dot(forward).abs() < 1e-9);
+    }
+
+    #[test]
+    fn the_centre_pixel_points_at_the_target() {
+        let camera = Camera::default();
+        let ray = camera.ray_at(DVec2::new(640.0, 360.0), DVec2::new(1280.0, 720.0));
+
+        let toward_target = (camera.target - camera.eye()).normalize();
+        assert!(
+            ray.direction.dot(toward_target) > 0.9999,
+            "the centre of the screen should look at what the camera is looking at"
+        );
+    }
+
+    #[test]
+    fn a_ray_hits_the_ground_where_you_would_expect() {
+        // Looking at the origin from above: the centre pixel must land on the origin.
+        let camera = Camera {
+            target: DVec3::ZERO,
+            distance: 20.0,
+            pitch: std::f64::consts::FRAC_PI_4,
+            ..Camera::default()
+        };
+        let viewport = DVec2::new(800.0, 600.0);
+        let hit = camera
+            .ray_at(viewport * 0.5, viewport)
+            .intersect_ground(0.0)
+            .expect("the centre ray should meet the ground");
+
+        assert!(hit.length() < 1e-6, "expected the origin, got {hit:?}");
+    }
+
+    #[test]
+    fn ground_hits_move_the_right_way_across_the_screen() {
+        // Not testing handedness, which the test should not know: only that two different
+        // pixels give two different ground points, and both are on the plane.
+        let camera = Camera {
+            target: DVec3::ZERO,
+            distance: 20.0,
+            pitch: 0.6,
+            ..Camera::default()
+        };
+        let viewport = DVec2::new(800.0, 600.0);
+        let left = camera
+            .ray_at(DVec2::new(200.0, 300.0), viewport)
+            .intersect_ground(0.0)
+            .unwrap();
+        let right = camera
+            .ray_at(DVec2::new(600.0, 300.0), viewport)
+            .intersect_ground(0.0)
+            .unwrap();
+
+        assert!(
+            left.z.abs() < 1e-9 && right.z.abs() < 1e-9,
+            "both on the plane"
+        );
+        assert!(
+            (left - right).length() > 1.0,
+            "different pixels, different points"
+        );
+    }
+
+    #[test]
+    fn a_ray_parallel_to_the_plane_misses() {
+        let ray = Ray {
+            origin: DVec3::new(0.0, 0.0, 5.0),
+            direction: DVec3::X,
+        };
+        assert_eq!(ray.intersect_ground(0.0), None);
+    }
+
+    #[test]
+    fn a_plane_behind_the_camera_is_not_a_hit() {
+        // Looking up, the ground is behind you. Returning a point there would place a wall
+        // behind the viewer with no way to see it happen.
+        let ray = Ray {
+            origin: DVec3::new(0.0, 0.0, 5.0),
+            direction: DVec3::Z,
+        };
+        assert_eq!(ray.intersect_ground(0.0), None);
+
+        let downward = Ray {
+            origin: DVec3::new(0.0, 0.0, 5.0),
+            direction: -DVec3::Z,
+        };
+        assert_eq!(downward.intersect_ground(0.0), Some(DVec3::ZERO));
+    }
+
+    #[test]
+    fn a_ray_can_meet_a_storey_above_the_origin() {
+        let camera = Camera {
+            target: DVec3::new(0.0, 0.0, 3.0),
+            distance: 20.0,
+            pitch: 0.5,
+            ..Camera::default()
+        };
+        let viewport = DVec2::new(800.0, 600.0);
+        let hit = camera
+            .ray_at(viewport * 0.5, viewport)
+            .intersect_ground(3.0)
+            .unwrap();
+        assert!((hit.z - 3.0).abs() < 1e-9);
     }
 
     #[test]

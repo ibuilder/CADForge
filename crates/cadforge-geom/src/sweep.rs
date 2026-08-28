@@ -18,10 +18,19 @@ pub fn extrude(profile: &Profile, depth: f64) -> Result<IndexedMesh, GeometryErr
 
 /// Extrude a profile along an arbitrary direction.
 ///
-/// The profile's local X and Y are placed orthogonally to `direction`, matching how
-/// `IfcExtrudedAreaSolid` composes its `Position` with its `ExtrudedDirection`.
+/// **The profile does not rotate.** It stays in its own XY plane and the far cap is that same
+/// profile displaced by `direction * depth`, which for an off-axis direction gives an oblique
+/// prism. This is what `IfcExtrudedAreaSolid` means: the profile lies in the XY plane of
+/// `Position`, and `ExtrudedDirection` is a vector expressed in that same coordinate system,
+/// not a new local Z.
 ///
-/// A negative depth extrudes the other way and still produces outward-facing normals.
+/// Re-basing the profile onto `direction` instead looks identical for a +Z sweep and for
+/// volume, which is how it survived here for two phases. It is visibly wrong the moment
+/// anything sweeps downward: the basis completing a right-handed frame with -Z mirrors the
+/// profile in Y, so a slab lands on the wrong side of its own outline.
+///
+/// A negative depth extrudes the other way and still produces outward-facing normals. A
+/// direction lying in the profile's own plane encloses nothing and is refused.
 pub fn extrude_along(
     profile: &Profile,
     direction: DVec3,
@@ -38,21 +47,33 @@ pub fn extrude_along(
         .ok_or(GeometryError::DegenerateDirection)?;
 
     let triangles = profile.triangulate()?;
-    let (x_axis, y_axis) = orthonormal_basis(axis);
+    let along = axis * depth;
 
-    // Normalise to a positive height so winding logic has one case, not two.
-    let (base_offset, height) = if depth >= 0.0 {
-        (0.0, depth)
+    // A sweep parallel to the profile's own plane encloses no volume. Refused rather than
+    // returned as a flat shell, because a zero-volume "solid" corrupts every boolean and
+    // every quantity downstream.
+    if along.z.abs() < f64::EPSILON {
+        return Err(GeometryError::DegenerateDirection);
+    }
+
+    // The profile is counter-clockwise in XY, so its normal is +Z, and the cap windings below
+    // assume `top` is the ring on the +Z side. When the sweep goes down, the profile itself is
+    // the top and the displaced ring is the bottom.
+    let (to_bottom, to_top) = if along.z > 0.0 {
+        (DVec3::ZERO, along)
     } else {
-        (depth, -depth)
+        (along, DVec3::ZERO)
     };
 
     let outer = profile.outer();
     let bottom: Vec<DVec3> = outer
         .iter()
-        .map(|p| x_axis * p.x + y_axis * p.y + axis * base_offset)
+        .map(|p| DVec3::new(p.x, p.y, 0.0) + to_bottom)
         .collect();
-    let top: Vec<DVec3> = bottom.iter().map(|p| *p + axis * height).collect();
+    let top: Vec<DVec3> = outer
+        .iter()
+        .map(|p| DVec3::new(p.x, p.y, 0.0) + to_top)
+        .collect();
 
     let n = outer.len();
     let mut mesh = IndexedMesh::with_capacity(triangles.len() * 2 + n * 2);
@@ -73,22 +94,6 @@ pub fn extrude_along(
     }
 
     Ok(mesh)
-}
-
-/// Two unit vectors completing a right-handed basis with `axis`.
-///
-/// The seed choice avoids the near-parallel case that would make the cross product
-/// ill-conditioned.
-fn orthonormal_basis(axis: DVec3) -> (DVec3, DVec3) {
-    let seed = if axis.x.abs() < 0.9 {
-        DVec3::X
-    } else {
-        DVec3::Y
-    };
-    let x = (seed - axis * axis.dot(seed))
-        .try_normalize()
-        .unwrap_or(DVec3::X);
-    (x, axis.cross(x))
 }
 
 #[cfg(test)]
@@ -143,16 +148,59 @@ mod tests {
     }
 
     #[test]
-    fn extruding_along_an_arbitrary_axis_preserves_volume() {
+    fn an_off_axis_sweep_shears_the_solid_rather_than_rotating_it() {
+        // The profile keeps its own plane, so the result is an oblique prism and Cavalieri
+        // applies: volume is the base area times the sweep's rise, not times its length.
+        //
+        // The test this replaced compared volume and surface area against a +Z sweep and
+        // called it "a rigid rotation must not change volume". Both quantities are invariant
+        // under a rotation, so it agreed with the wrong implementation for two phases.
         let profile = Profile::rectangle(2.0, 3.0).unwrap();
-        let straight = extrude(&profile, 4.0).unwrap();
         let skew = extrude_along(&profile, DVec3::new(1.0, 1.0, 1.0), 4.0).unwrap();
 
+        let rise = 4.0 / 3.0f64.sqrt();
         assert!(
-            (skew.signed_volume() - straight.signed_volume()).abs() < 1e-9,
-            "a rigid rotation must not change volume"
+            (skew.signed_volume() - 6.0 * rise).abs() < 1e-9,
+            "got {}",
+            skew.signed_volume()
         );
-        assert!((skew.surface_area() - straight.surface_area()).abs() < 1e-9);
+
+        // And the base is exactly where the profile was, not somewhere a basis put it.
+        let bounds = skew.bounds();
+        assert!((bounds.min.x + 1.0).abs() < 1e-12 && (bounds.min.y + 1.5).abs() < 1e-12);
+        assert!(bounds.min.z.abs() < 1e-12);
+    }
+
+    #[test]
+    fn sweeping_down_does_not_mirror_the_profile() {
+        // A slab is a plan outline extruded downward so its top face is the level it was set
+        // out on. Re-basing the profile onto -Z flips it in Y, which put a 7x5 m slab
+        // alongside the room it was drawn in instead of underneath it.
+        let profile = Profile::new([
+            glam::DVec2::new(0.0, 0.0),
+            glam::DVec2::new(7.0, 0.0),
+            glam::DVec2::new(7.0, 5.0),
+            glam::DVec2::new(0.0, 5.0),
+        ])
+        .unwrap();
+        let slab = extrude_along(&profile, DVec3::NEG_Z, 0.2).unwrap();
+
+        let bounds = slab.bounds();
+        assert!((bounds.min.y).abs() < 1e-12, "got {:?}", bounds.min);
+        assert!((bounds.max.y - 5.0).abs() < 1e-12);
+        assert!((bounds.min.z + 0.2).abs() < 1e-12);
+        assert!(bounds.max.z.abs() < 1e-12);
+        // Still a solid with outward normals, not an inside-out one.
+        assert!((slab.signed_volume() - 7.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn a_sweep_inside_the_profile_plane_is_refused() {
+        let profile = Profile::rectangle(2.0, 2.0).unwrap();
+        assert_eq!(
+            extrude_along(&profile, DVec3::X, 1.0),
+            Err(GeometryError::DegenerateDirection)
+        );
     }
 
     #[test]

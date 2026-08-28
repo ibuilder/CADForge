@@ -272,9 +272,22 @@ dependencies = [
  "cadforge-geom",
  "cadforge-ifc",
  "cadforge-render",
+ "cadforge-tools",
  "glam",
  "wgpu",
  "winit",
+]
+
+[[package]]
+name = "cadforge-tools"
+version = "0.2.0"
+dependencies = [
+ "cadforge-core",
+ "cadforge-geom",
+ "cadforge-ifc",
+ "glam",
+ "serde",
+ "thiserror 2.0.20",
 ]
 
 [[package]]

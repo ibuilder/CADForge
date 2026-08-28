@@ -10,6 +10,36 @@ is `0`, the public API may change in any release.
 
 ### Added
 
+- **Authoring tools.** Phase 5. `cadforge-tools` turns clicks into elements: a wall from two
+  points, a column from one, a slab from a closed outline. Every tool emits ordinary
+  `ModelCommand`s, so a hand-drawn wall is indistinguishable from an authored one and undo,
+  redo, revisions, and export needed no changes at all.
+  - **All output is native parametric.** Walls, slabs, and columns export as
+    `IfcExtrudedAreaSolid` over `IfcArbitraryClosedProfileDef`, never as triangles. A tool
+    that emitted a mesh would look identical on screen and arrive in Revit or Archicad as
+    something nobody can edit.
+  - **Snapping** (`cadforge_geom::snap`): candidates beat the grid, the grid leaves elevation
+    alone, and the tolerance is derived from a fixed reach in *pixels*, because "near where I
+    clicked" is a screen-space idea and a metric tolerance is grabby zoomed out and
+    unreachable zoomed in.
+  - Snap candidates include profile **edge midpoints**, not just corners. For a wall — whose
+    profile is the centreline spread half a thickness either side — the midpoint of an end
+    edge *is* the centreline endpoint. Without it, a wall drawn onto another lands on a face
+    corner half a thickness off: joined to the eye, wrong to a tape measure.
+  - A live **preview** of what the next click would build, produced by running the real
+    construction against a hypothetical point rather than by a second implementation of the
+    same geometry.
+  - In the viewport: `1`/`2`/`3`/`4` select the tool, `Enter` closes a slab outline,
+    `Backspace` takes a point back, `Esc` cancels, `Ctrl+Z`/`Ctrl+Y` undo and redo. Drawn
+    elements are filed in the lowest storey.
+- `Camera::ray_at` and `Ray::intersect_plane`/`intersect_ground` — screen pixel to world
+  point, which is the whole of what an authoring tool needs from a camera and is pure enough
+  to test without a window.
+- `examples/drawn_room.rs` draws a room with the tools from clicks that are every one of them
+  29 mm off, asserts the eight wall ends meet exactly, exports, and renders it. The drawing
+  and export need no GPU, so **CI now validates a tool-drawn file against IfcOpenShell**
+  alongside the code-authored demo.
+
 - **A window.** `cadforge-viewport` (feature `viewport`) opens a real `winit` window on a
   `wgpu` surface with orbit, pan, and zoom. Phase 3b.
   - Give it an `.ifc` path and it imports and displays the file — the first place the reader,
@@ -44,6 +74,24 @@ is `0`, the public API may change in any release.
     section. Capping needs a stencil pass and is not done.
 
 ### Fixed
+
+- **`extrude_along` rotated the profile instead of shearing it.** It built an orthonormal
+  basis around the sweep direction and re-based the profile onto it. That is not what
+  `IfcExtrudedAreaSolid` means: the profile lies in the XY plane of `Position` and
+  `ExtrudedDirection` is a vector in that same system, so an off-axis sweep gives an oblique
+  prism and the profile never moves.
+
+  For `+Z` — everything written before Phase 5 — the two are identical, which is why it
+  survived. The existing test compared volume and surface area against a `+Z` sweep and
+  called the difference "a rigid rotation", and both quantities are invariant under exactly
+  the error it was meant to catch. It became visible the moment a slab swept downward: the
+  basis completing a right-handed frame with `-Z` mirrors the profile in Y, and a 7 × 5 m
+  slab landed alongside the room it was drawn in rather than underneath it. A sweep lying in
+  the profile's own plane is now refused rather than returned as a zero-volume shell.
+- `tools/validate_ifc.py` failed any file without a door. The structural, geometric, and
+  round-trip checks apply to any CADForge export; the ones naming a door, an opening, or a
+  volume describe the demo model, and now run only when the file contains them. Pointed at a
+  hand-drawn room it used to report two failures and then crash.
 
 - **Imported lengths ignored the file's units.** Real IFC is overwhelmingly in millimetres, and
   CADForge is metric-metres throughout, so a 3 m wall was being read as 3 km. Placements,

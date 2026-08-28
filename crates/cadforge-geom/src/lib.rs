@@ -18,6 +18,7 @@ pub mod bsp;
 pub mod csg;
 pub mod mesh;
 pub mod profile;
+pub mod snap;
 pub mod sweep;
 pub mod tess;
 
@@ -25,6 +26,7 @@ pub use bsp::{is_edge_manifold, is_watertight, BspCsg};
 pub use csg::{CsgBackend, UnavailableCsg};
 pub use mesh::IndexedMesh;
 pub use profile::Profile;
+pub use snap::{snap, Snap, SnapKind, SnapSettings};
 pub use sweep::{extrude, extrude_along};
 pub use tess::TessellationSettings;
 

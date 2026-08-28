@@ -83,6 +83,13 @@ jobs:
         run: cargo run -p cadforge-shell
       - name: Validate against IfcOpenShell
         run: python tools/validate_ifc.py out/demo.ifc
+      # The demo model is authored in code. This one is drawn with the Phase 5 tools from
+      # clicks that are all deliberately off, so it checks a different claim: that snapping
+      # and the drawing tools produce a file the reference implementation accepts.
+      - name: Draw a model with the authoring tools
+        run: cargo run -p cadforge-shell --example drawn_room
+      - name: Validate the drawn model
+        run: python tools/validate_ifc.py out/drawn.ifc
       - name: Upload the exported model
         if: always()
         uses: actions/upload-artifact@v7
@@ -91,6 +98,7 @@ jobs:
           path: |
             out/demo.ifc
             out/demo.obj
+            out/drawn.ifc
           retention-days: 14
 
   spike:

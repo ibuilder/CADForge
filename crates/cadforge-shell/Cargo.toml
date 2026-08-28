@@ -39,6 +39,7 @@ cadforge-family.workspace = true
 cadforge-geom.workspace = true
 cadforge-ifc.workspace = true
 cadforge-render.workspace = true
+cadforge-tools.workspace = true
 anyhow.workspace = true
 glam.workspace = true
 

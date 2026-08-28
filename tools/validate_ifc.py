@@ -9,6 +9,11 @@ resolves every relationship, and generates real geometry.
     cargo run -p cadforge-shell
     python tools/validate_ifc.py out/demo.ifc
 
+The structural, geometric, and round-trip checks apply to any CADForge export. The checks
+that name a door, an opening, or a specific volume describe the demo model in particular,
+and run only when the file contains them - pointed at a hand-drawn room this reports what
+it can verify rather than failing it for lacking a door it was never given.
+
 Exit code is non-zero on any failure, so it drops straight into CI.
 """
 
@@ -88,65 +93,81 @@ print(f"        storey '{storey.Name}' decomposes into {len(contained)} element(
 walls = f.by_type("IfcWall")
 doors = f.by_type("IfcDoor")
 openings = f.by_type("IfcOpeningElement")
-check(len(walls) == 4, "4 walls", f"got {len(walls)}")
-check(len(doors) == 1, "1 door", f"got {len(doors)}")
-check(len(openings) == 1, "1 opening", f"got {len(openings)}")
+products = [e for e in f.by_type("IfcProduct") if e.Representation]
+kinds = {}
+for element in products:
+    kinds[element.is_a()] = kinds.get(element.is_a(), 0) + 1
+print("        geometry on " + ", ".join(f"{n} {k}" for k, n in sorted(kinds.items())))
+check(len(walls) >= 1, "the file has walls", f"got {len(walls)}")
+
+# The demo model is the one with a hosted door. Every check that names a door, an opening,
+# or a volume describes it and nothing else, so a file without one is not failed for
+# lacking it - it is a different model, not a broken one.
+DEMO = len(doors) == 1 and len(openings) == 1
 
 # ---- 4. relationships -------------------------------------------------------------------
 print("\nrelationships")
-door = doors[0]
-opening = openings[0]
+if not DEMO:
+    print("  SKIP  no hosted door here; the opening, type, and volume checks are the demo's")
 
-check(bool(opening.VoidsElements), "opening voids a host element")
-if opening.VoidsElements:
-    host = opening.VoidsElements[0].RelatingBuildingElement
-    check(host.is_a("IfcWall"), "the host is a wall", f"got {host.is_a()}")
-    print(f"        {host.is_a()} '{host.Name}' <- voided by {opening.is_a()}")
+if DEMO:
+    door = doors[0]
+    opening = openings[0]
 
-check(bool(opening.HasFillings), "opening is filled")
-if opening.HasFillings:
-    filler = opening.HasFillings[0].RelatedBuildingElement
-    check(filler.id() == door.id(), "the filler is our door", f"got {filler.is_a()}")
+    check(bool(opening.VoidsElements), "opening voids a host element")
+    if opening.VoidsElements:
+        host = opening.VoidsElements[0].RelatingBuildingElement
+        check(host.is_a("IfcWall"), "the host is a wall", f"got {host.is_a()}")
+        print(f"        {host.is_a()} '{host.Name}' <- voided by {opening.is_a()}")
 
-check(
-    bool(ifcopenshell.util.element.get_container(door)),
-    "door resolves to a spatial container",
-)
-# Test the raw attribute, not get_container(). IfcOpenShell deliberately resolves an
-# opening's container *through its host*, so get_container() returning a storey is correct
-# behaviour and says nothing about what we wrote. What matters is that we did not list the
-# opening in IfcRelContainedInSpatialStructure ourselves, which would be a validation error.
-check(
-    not opening.ContainedInStructure,
-    "opening is not listed in IfcRelContainedInSpatialStructure",
-    f"got {opening.ContainedInStructure}",
-)
-check(
-    all(
-        not e.is_a("IfcOpeningElement")
-        for rel in f.by_type("IfcRelContainedInSpatialStructure")
-        for e in rel.RelatedElements
-    ),
-    "no opening appears in any containment relationship",
-)
+    check(bool(opening.HasFillings), "opening is filled")
+    if opening.HasFillings:
+        filler = opening.HasFillings[0].RelatedBuildingElement
+        check(filler.id() == door.id(), "the filler is our door", f"got {filler.is_a()}")
 
-door_type = ifcopenshell.util.element.get_type(door)
-check(door_type is not None and door_type.is_a("IfcDoorType"), "door resolves to an IfcDoorType")
-if door_type is not None:
-    print(f"        type '{door_type.Name}' predefined {door_type.PredefinedType}")
+    check(
+        bool(ifcopenshell.util.element.get_container(door)),
+        "door resolves to a spatial container",
+    )
+    # Test the raw attribute, not get_container(). IfcOpenShell deliberately resolves an
+    # opening's container *through its host*, so get_container() returning a storey is correct
+    # behaviour and says nothing about what we wrote. What matters is that we did not list the
+    # opening in IfcRelContainedInSpatialStructure ourselves, which would be a validation error.
+    check(
+        not opening.ContainedInStructure,
+        "opening is not listed in IfcRelContainedInSpatialStructure",
+        f"got {opening.ContainedInStructure}",
+    )
+    check(
+        all(
+            not e.is_a("IfcOpeningElement")
+            for rel in f.by_type("IfcRelContainedInSpatialStructure")
+            for e in rel.RelatedElements
+        ),
+        "no opening appears in any containment relationship",
+    )
 
-psets = ifcopenshell.util.element.get_psets(walls[0])
-check("Pset_WallCommon" in psets, "wall carries Pset_WallCommon", f"got {list(psets)}")
-check(
-    psets.get("Pset_WallCommon", {}).get("IsExternal") is True,
-    "IsExternal survived as a boolean",
-    f"got {psets.get('Pset_WallCommon', {}).get('IsExternal')!r}",
-)
+    door_type = ifcopenshell.util.element.get_type(door)
+    check(door_type is not None and door_type.is_a("IfcDoorType"), "door resolves to an IfcDoorType")
+    if door_type is not None:
+        print(f"        type '{door_type.Name}' predefined {door_type.PredefinedType}")
+
+    psets = ifcopenshell.util.element.get_psets(walls[0])
+    check("Pset_WallCommon" in psets, "wall carries Pset_WallCommon", f"got {list(psets)}")
+    check(
+        psets.get("Pset_WallCommon", {}).get("IsExternal") is True,
+        "IsExternal survived as a boolean",
+        f"got {psets.get('Pset_WallCommon', {}).get('IsExternal')!r}",
+    )
 
 # ---- 5. geometry ------------------------------------------------------------------------
 print("\ngeometry")
 swept = f.by_type("IfcExtrudedAreaSolid")
-check(len(swept) == 6, "6 IfcExtrudedAreaSolid", f"got {len(swept)}")
+check(
+    len(swept) >= len(products),
+    "every product with geometry has a swept solid",
+    f"{len(swept)} solids for {len(products)} products",
+)
 check(
     not f.by_type("IfcTriangulatedFaceSet"),
     "no tessellated fallbacks - everything stayed parametric",
@@ -154,7 +175,7 @@ check(
 
 settings = ifcopenshell.geom.settings()
 generated, failed, volumes = 0, [], {}
-for element in walls + doors + openings:
+for element in products:
     try:
         shape = ifcopenshell.geom.create_shape(settings, element)
         volume = ifcopenshell.util.shape.get_volume(shape.geometry)
@@ -164,8 +185,8 @@ for element in walls + doors + openings:
         failed.append(f"{element.is_a()} {element.GlobalId}: {e}")
 
 check(
-    generated == len(walls) + len(doors) + len(openings),
-    f"IfcOpenShell generated geometry for all {len(walls) + len(doors) + len(openings)} elements",
+    generated == len(products),
+    f"IfcOpenShell generated geometry for all {len(products)} elements",
     "; ".join(failed),
 )
 for name, volume in volumes.items():
@@ -177,19 +198,20 @@ for name, volume in volumes.items():
 #   door void through W-01 =  0.3901 m3  (0.92 wide x 0.20 wall x 2.12 high)
 #   what a consumer sees   = 15.2099 m3
 # If this ever comes back as 15.60, IfcRelVoidsElement stopped working.
-UNCUT, VOID = 15.60, 0.92 * 0.20 * 2.12
-wall_volume = sum(v for k, v in volumes.items() if k.startswith("IfcWall"))
-check(
-    abs(wall_volume - (UNCUT - VOID)) < 0.01,
-    f"walls come back CUT by the opening ({UNCUT - VOID:.4f} m3, not the uncut {UNCUT})",
-    f"got {wall_volume:.4f}",
-)
-door_volume = sum(v for k, v in volumes.items() if k.startswith("IfcDoor"))
-check(
-    abs(door_volume - 0.0851) < 0.001,
-    "door leaf volume matches (0.0851 m3)",
-    f"got {door_volume:.4f}",
-)
+if DEMO:
+    UNCUT, VOID = 15.60, 0.92 * 0.20 * 2.12
+    wall_volume = sum(v for k, v in volumes.items() if k.startswith("IfcWall"))
+    check(
+        abs(wall_volume - (UNCUT - VOID)) < 0.01,
+        f"walls come back CUT by the opening ({UNCUT - VOID:.4f} m3, not the uncut {UNCUT})",
+        f"got {wall_volume:.4f}",
+    )
+    door_volume = sum(v for k, v in volumes.items() if k.startswith("IfcDoor"))
+    check(
+        abs(door_volume - 0.0851) < 0.001,
+        "door leaf volume matches (0.0851 m3)",
+        f"got {door_volume:.4f}",
+    )
 
 # ---- 6. round trip ----------------------------------------------------------------------
 print("\nround trip")

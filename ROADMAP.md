@@ -9,8 +9,9 @@ evidence in [docs/research/LANDSCAPE.md](docs/research/LANDSCAPE.md).
 ## Status
 
 **Early development.** CADForge reads and writes IFC, authors a building semantically,
-evaluates parametric families, cuts openings, renders on the GPU, and **opens a window you can
-drop an IFC file into**. It has no authoring tools — everything is still driven from code.
+evaluates parametric families, cuts openings, renders on the GPU, opens a window you can drop
+an IFC file into, and **draws walls, slabs, and columns in it**. What it does not yet have is
+constraints, beams, or openings you can place by hand.
 
 | Phase | State | What it means |
 |---|---|---|
@@ -21,7 +22,7 @@ drop an IFC file into**. It has no authoring tools — everything is still drive
 | **3a — Renderer** | ✅ Complete | Headless wgpu: pipeline, depth, culling, readback |
 | **3b — Viewport** | Partial | Window, orbit/pan/zoom, IFC display, GPU picking, and section planes work; instancing and capped sections do not |
 | **4 — Families** | Partial | Definition, flexing, hosting, and IFC type export all work; library management does not |
-| **5 — Authoring** | Planned | Wall, slab, column, beam, and opening tools with native parametric output |
+| **5 — Authoring** | Partial | Wall, slab, and column tools with snapping, all native parametric; beams, openings, and constraints do not |
 | **6 — Mobile** | Planned | Android, then iOS |
 | **7 — Ingest** | Planned | `.rfa` parameters, Archicad GDL, glTF meshes |
 
@@ -85,9 +86,12 @@ hollow.
 
 ## Further out
 
-**Authoring tools (Phase 5).** Wall, slab, column, beam, and opening commands with snapping,
-constraints, and level-aware placement. The commands and geometry already exist; what is
-missing is the interaction model.
+**Authoring tools (Phase 5).** Walls, slabs, and columns can be drawn, snapped, undone, and
+exported as native parametric IFC — see [`crates/cadforge-tools`](crates/cadforge-tools/) and
+the `drawn_room` example, whose output CI validates against IfcOpenShell.
+
+Still missing: beams, openings placed by hand, family instances placed by hand, dimensional
+constraints, and any way to edit an element after drawing it other than undo.
 
 **Mobile (Phase 6).** Android first, because `android-activity` with `winit` is better trodden
 than UIKit. Parity is in the *model*, not the toolbar — see

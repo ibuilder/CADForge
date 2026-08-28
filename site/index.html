@@ -139,10 +139,10 @@
       <img src="assets/logo.svg" alt="" width="64" height="64" style="flex:none">
       <h1 class="logo" style="margin:0">CADForge</h1>
     </div>
-    <p class="tagline">An IFC-native BIM authoring engine in Rust — with a real family system.<br><span style="font-size:.9rem;color:var(--fg-faint)">The engine, not yet the application: libraries, a demo pipeline, and no GUI.</span></p>
+    <p class="tagline">An IFC-native BIM authoring engine in Rust — with a real family system.<br><span style="font-size:.9rem;color:var(--fg-faint)">An engine becoming an application: it opens a window, and you can draw in it.</span></p>
     <div class="badges">
       <span class="badge status">Early development · v0.2.0</span>
-      <span class="badge ok">195 tests</span>
+      <span class="badge ok">249 tests</span>
       <span class="badge ok">IfcOpenShell-validated</span>
       <span class="badge">MPL-2.0</span>
       <span class="badge">Tested: Windows · macOS · Linux</span>
@@ -154,11 +154,12 @@
 <main class="wrap">
 
   <div class="notice">
-    <strong>Status: not production ready.</strong> Four of eight phases are complete. CADForge
-    reads and writes IFC, authors a building semantically, flexes parametric families, cuts
-    openings, and renders on the GPU. It has <em>no window</em> and <em>no authoring tools</em> —
-    everything today is driven from code. Everything claimed on this page is measured;
-    everything unbuilt is named.
+    <strong>Status: not production ready.</strong> CADForge reads and writes IFC, authors a
+    building semantically, flexes parametric families, cuts openings, renders on the GPU,
+    opens a window you can drop an IFC file into, and lets you <em>draw walls, slabs, and
+    columns in it</em>. It has <em>no constraints</em>, <em>no way to edit an element after
+    drawing it</em> beyond undo, and has <em>never run on a phone</em>. Everything claimed on
+    this page is measured; everything unbuilt is named.
   </div>
 
   <h2>Why it exists</h2>
@@ -174,6 +175,13 @@
   </p>
 
   <h2>It draws</h2>
+  <figure class="shot" style="margin:0 0 1.25rem">
+    <img src="assets/drawn.png" alt="A rectangular room of four walls with a floor slab and two columns, drawn with the authoring tools and rendered on the GPU.">
+    <figcaption>
+      Drawn with the tools, not authored in code — and every click deliberately aimed 29&nbsp;mm
+      off. Snapping is what makes the eight wall ends meet exactly rather than nearly.
+    </figcaption>
+  </figure>
   <div class="shots">
     <figure class="shot">
       <img src="assets/room.png" alt="Four walls forming a room, with a timber door standing in one wall, rendered on the GPU.">
@@ -195,7 +203,7 @@
     <div class="metric"><div class="n">0</div><div class="l">EXPRESS rule violations, per IfcOpenShell 0.8.5</div></div>
     <div class="metric"><div class="n">520 MB/s</div><div class="l">IFC scan throughput, 17.5 MB file</div></div>
     <div class="metric"><div class="n">23/23</div><div class="l">Corpus files round-trip with every element intact</div></div>
-    <div class="metric"><div class="n">195</div><div class="l">Tests, zero clippy warnings</div></div>
+    <div class="metric"><div class="n">249</div><div class="l">Tests, zero clippy warnings</div></div>
   </div>
   <p class="small muted">
     Exported IFC4 is checked against the reference implementation, not just against itself:
@@ -223,7 +231,7 @@
     </div>
   </div>
   <p class="small">
-    Nine <a href="https://github.com/ibuilder/CADForge/tree/main/docs/adr">architecture decision records</a>
+    Ten <a href="https://github.com/ibuilder/CADForge/tree/main/docs/adr">architecture decision records</a>
     carry the evidence, the costs, and what would make each one wrong.
   </p>
 
@@ -231,11 +239,19 @@
 <pre><code>git clone https://github.com/ibuilder/CADForge
 cd CADForge
 cargo test --workspace
-cargo run -p cadforge-shell --features gpu</code></pre>
+cargo run -p cadforge-shell --features gpu
+
+# open a file in a window, then press 2 and click to draw a wall
+cargo run -p cadforge-shell --features viewport --bin cadforge-viewport -- model.ifc
+
+# or draw a room with no window at all, and export it
+cargo run -p cadforge-shell --features gpu --example drawn_room</code></pre>
   <p class="small muted">
     The demo authors four walls through commands, defines a parametric door family, places it
     as a hosted opening, cuts the wall, renders to <code>out/demo.png</code>, exports valid
-    IFC4, undoes the entire session to an empty model, and redoes it.
+    IFC4, undoes the entire session to an empty model, and redoes it. The <code>drawn_room</code>
+    example does the same journey from clicks instead of code, and CI validates both files
+    against IfcOpenShell.
   </p>
 
   <h2>Where it is going</h2>
@@ -248,16 +264,17 @@ cargo run -p cadforge-shell --features gpu</code></pre>
       <tr><td>IFC out</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Native IFC4 writer, externally validated</td></tr>
       <tr><td>IFC in</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">23/23 corpus files round-trip intact</td></tr>
       <tr><td>Renderer</td><td class="mono" style="color:var(--ok)">complete</td><td class="muted small">Headless wgpu on real hardware</td></tr>
-      <tr><td>Viewport</td><td class="mono muted">planned</td><td class="muted small">winit window, GPU picking, section planes</td></tr>
-      <tr><td>Authoring tools</td><td class="mono muted">planned</td><td class="muted small">Wall, slab, column, beam, opening</td></tr>
+      <tr><td>Viewport</td><td class="mono" style="color:var(--warn)">partial</td><td class="muted small">Window, orbit, GPU picking and section planes work; instancing and capped sections do not</td></tr>
+      <tr><td>Authoring tools</td><td class="mono" style="color:var(--warn)">partial</td><td class="muted small">Wall, slab, and column with snapping and undo; beams, hand-placed openings and constraints do not</td></tr>
       <tr><td>Mobile</td><td class="mono muted">planned</td><td class="muted small">Android first, then iOS</td></tr>
     </tbody>
   </table>
   </div>
   <p class="small">
-    The honest blocker is a test corpus. Everything round-tripped so far was written by
-    CADForge itself, which says nothing about a consultant's Revit export with duplicate
-    <code>GlobalId</code>s and geometry that fails to generate.
+    The honest blocker is <em>vendor</em> files. All 23 of buildingSMART's certification models
+    now import and round-trip intact, but that corpus is clean and skews to infrastructure. It
+    says nothing about a consultant's Revit export with duplicate <code>GlobalId</code>s,
+    mis-nested placements, and geometry that fails to generate.
     <a href="https://github.com/ibuilder/CADForge/blob/main/ROADMAP.md">Full roadmap →</a>
   </p>
 
