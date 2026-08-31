@@ -746,9 +746,9 @@ checksum = "fc0fef456e4baa96da950455cd02c081ca953b141298e41db3fc7e36b1da849c"
 
 [[package]]
 name = "ifc-lite-core"
-version = "6.0.1"
+version = "7.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9c9a8d756d1e41251e28fbdd226f783bac6f246dd8f348b92aec7dc99629379b"
+checksum = "72258bdcb5f2efe4e43b22b271eee68022ae3556418d9235ce48056cc5066104"
 dependencies = [
  "fast-float2",
  "futures-core",
